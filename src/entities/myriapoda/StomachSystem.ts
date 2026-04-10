@@ -1,7 +1,18 @@
 import * as planck from 'planck';
 import { tuning } from '@/game/tuning';
-import type { PickupResourceId, PickupTier } from '@/game/types';
+import type {
+  PickupResourceId,
+  PickupTier,
+  UiStomachParasiteSnapshot,
+} from '@/game/types';
 import { getPickupDefinition } from '@/entities/pickups/PickupRegistry';
+import {
+  createActiveParasite,
+  createParasiteAlertProgress,
+  createUiParasiteSnapshots,
+  stepActiveParasites,
+  type ActiveParasite,
+} from '@/entities/pickups/harmful/parasite';
 import { randomBetween } from '@/utils/random';
 
 export interface StomachParticle {
@@ -15,8 +26,10 @@ export interface StomachParticle {
 
 export class StomachSystem {
   private serial = 0;
+  private parasiteSerial = 0;
   readonly world: planck.World;
   readonly particles: StomachParticle[] = [];
+  readonly parasites: ActiveParasite[] = [];
   private readonly mixerBody: planck.Body;
   private anchorX = 0;
   private anchorY = 0;
@@ -53,11 +66,17 @@ export class StomachSystem {
   }
 
   add(resourceId: PickupResourceId): void {
+    const definition = getPickupDefinition(resourceId);
+    if (definition.stomachEffect === 'parasite') {
+      this.parasiteSerial += 1;
+      this.parasites.push(createActiveParasite(`parasite-${this.parasiteSerial}`));
+      return;
+    }
+
     while (this.particles.length >= tuning.stomachParticleLimit) {
       this.removeParticle(this.particles[0], true);
     }
 
-    const definition = getPickupDefinition(resourceId);
     this.serial += 1;
     const radiusMeters = randomBetween(0.045, 0.08);
     const spawnAngle = randomBetween(0, Math.PI * 2);
@@ -112,6 +131,14 @@ export class StomachSystem {
 
   step(deltaSeconds: number): void {
     this.mixTime += deltaSeconds;
+    const nextParasites = stepActiveParasites(
+      this.parasites,
+      deltaSeconds,
+      tuning.parasiteLifetimeSeconds,
+      tuning.parasiteConsumeIntervalSeconds,
+      () => this.consumeOldestPickupForParasite(),
+    );
+    this.parasites.splice(0, this.parasites.length, ...nextParasites);
     const angle = Math.sin(this.mixTime * 0.9) * 0.55;
     this.mixerBody.setTransform(planck.Vec2(0, 0), angle);
     this.mixerBody.setAngularVelocity(Math.cos(this.mixTime * 1.1) * tuning.stomachMixerAngularSpeed);
@@ -143,6 +170,18 @@ export class StomachSystem {
     this.consumedPickupTotal += consumedPickups;
   }
 
+  getActiveParasiteCount(): number {
+    return this.parasites.length;
+  }
+
+  getParasiteAlertProgress(): number {
+    return createParasiteAlertProgress(this.parasites.length, this.mixTime);
+  }
+
+  getUiParasiteSnapshots(): UiStomachParasiteSnapshot[] {
+    return createUiParasiteSnapshots(this.parasites);
+  }
+
   private removeParticle(particle: StomachParticle | undefined, shouldTrackRemoval = false): void {
     if (!particle) {
       return;
@@ -156,6 +195,16 @@ export class StomachSystem {
       this.biomass = Math.max(0, this.biomass - particle.digestValue);
     }
     this.world.destroyBody(particle.body);
+  }
+
+  private consumeOldestPickupForParasite(): boolean {
+    const particle = this.particles[0];
+    if (!particle) {
+      return false;
+    }
+
+    this.removeParticle(particle, true);
+    return true;
   }
 
   private keepParticlesInside(): void {

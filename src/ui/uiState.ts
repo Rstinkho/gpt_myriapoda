@@ -1,13 +1,13 @@
 import type {
   HudSnapshot,
   PickupResourceId,
-  PickupTier,
+  NutrientPickupTier,
   UiMode,
   UiStomachParticleSnapshot,
 } from '@/game/types';
 import {
   getPickupTierFromResource,
-  pickupTiers,
+  nutrientPickupTiers,
 } from '@/entities/pickups/PickupRegistry';
 
 export interface StomachParticleRenderSource {
@@ -68,7 +68,7 @@ export function getLimbCooldownProgress(
   return clamp(1 - attackCooldownSeconds / maxCooldownSeconds, 0, 1);
 }
 
-export function createEmptyPickupCounts(): Record<PickupTier, number> {
+export function createEmptyPickupCounts(): Record<NutrientPickupTier, number> {
   return {
     basic: 0,
     advanced: 0,
@@ -78,10 +78,14 @@ export function createEmptyPickupCounts(): Record<PickupTier, number> {
 
 export function getPickupCountsByTier(
   particles: ReadonlyArray<{ resourceId: PickupResourceId }>,
-): Record<PickupTier, number> {
+): Record<NutrientPickupTier, number> {
   const counts = createEmptyPickupCounts();
   for (const particle of particles) {
-    counts[getPickupTierFromResource(particle.resourceId)] += 1;
+    const tier = getPickupTierFromResource(particle.resourceId);
+    if (tier === 'harmful') {
+      continue;
+    }
+    counts[tier] += 1;
   }
 
   return counts;
@@ -109,9 +113,9 @@ export function isHudDebugEnabled(snapshot: Pick<HudSnapshot, 'uiMode'>): boolea
 }
 
 export function getPickupCountEntries(
-  pickupCounts: Record<PickupTier, number>,
-): Array<{ tier: PickupTier; count: number }> {
-  return pickupTiers.map((tier) => ({
+  pickupCounts: Record<NutrientPickupTier, number>,
+): Array<{ tier: NutrientPickupTier; count: number }> {
+  return nutrientPickupTiers.map((tier) => ({
     tier,
     count: pickupCounts[tier],
   }));

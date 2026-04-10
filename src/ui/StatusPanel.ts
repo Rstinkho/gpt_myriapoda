@@ -1,13 +1,14 @@
 import Phaser from 'phaser';
 import type {
   HudSnapshot,
-  PickupTier,
+  NutrientPickupTier,
   UiStomachParticleSnapshot,
+  UiStomachParasiteSnapshot,
 } from '@/game/types';
 import {
   getDefaultPickupDefinition,
   getPickupDefinition,
-  pickupTiers,
+  nutrientPickupTiers,
 } from '@/entities/pickups/PickupRegistry';
 import {
   applyPickupSpriteAnimation,
@@ -47,9 +48,9 @@ export class StatusPanel {
   private readonly readyBadge: Phaser.GameObjects.Text;
   private readonly segmentLabel: Phaser.GameObjects.Text;
   private readonly segmentValue: Phaser.GameObjects.Text;
-  private readonly counterIcons: Record<PickupTier, Phaser.GameObjects.Image>;
-  private readonly counterTexts: Record<PickupTier, Phaser.GameObjects.Text>;
-  private readonly counterIconPhases: Record<PickupTier, number>;
+  private readonly counterIcons: Record<NutrientPickupTier, Phaser.GameObjects.Image>;
+  private readonly counterTexts: Record<NutrientPickupTier, Phaser.GameObjects.Text>;
+  private readonly counterIconPhases: Record<NutrientPickupTier, number>;
   private metrics?: PanelMetrics;
   private snapshot?: HudSnapshot;
 
@@ -147,7 +148,7 @@ export class StatusPanel {
       rare: getPickupAnimationPhase('status-rare'),
     };
 
-    for (const tier of pickupTiers) {
+    for (const tier of nutrientPickupTiers) {
       this.counterIcons[tier].setScrollFactor(0).setDepth(1002);
       this.counterTexts[tier].setScrollFactor(0).setDepth(1002);
     }
@@ -287,12 +288,13 @@ export class StatusPanel {
     }
 
     this.animateCounterIcons(elapsedSeconds);
-    this.drawStomachChamber(metrics);
+    this.drawStomachChamber(metrics, snapshot.parasiteAlertProgress);
     this.drawStomachParticles(snapshot.stomachParticles, metrics, elapsedSeconds);
+    this.drawStomachParasites(snapshot.stomachParasites, metrics, elapsedSeconds);
   }
 
   private animateCounterIcons(elapsedSeconds: number): void {
-    for (const tier of pickupTiers) {
+    for (const tier of nutrientPickupTiers) {
       const definition = getDefaultPickupDefinition(tier);
       applyPickupSpriteAnimation(
         this.counterIcons[tier],
@@ -308,7 +310,10 @@ export class StatusPanel {
     }
   }
 
-  private drawStomachChamber(metrics: PanelMetrics): void {
+  private drawStomachChamber(
+    metrics: PanelMetrics,
+    parasiteAlertProgress: number,
+  ): void {
     const wallLeft = metrics.chamberX + 18;
     const wallRight = metrics.chamberX + metrics.chamberWidth - 18;
     const topY = metrics.chamberY + 10;
@@ -324,14 +329,38 @@ export class StatusPanel {
       metrics.chamberInnerY,
       metrics.chamberInnerY + metrics.chamberInnerHeight - 8,
     );
+    if (parasiteAlertProgress > 0) {
+      this.chamberGraphics.fillStyle(0xff6d78, 0.08 + parasiteAlertProgress * 0.16);
+      this.fillUInterior(
+        metrics.chamberInnerX,
+        metrics.chamberInnerX + metrics.chamberInnerWidth,
+        metrics.chamberInnerY,
+        metrics.chamberInnerY + metrics.chamberInnerHeight - 8,
+      );
+    }
 
-    this.chamberGraphics.lineStyle(14, 0x90e8ff, 0.12);
+    this.chamberGraphics.lineStyle(
+      14,
+      parasiteAlertProgress > 0 ? 0xaa313d : 0x90e8ff,
+      0.12 + parasiteAlertProgress * 0.1,
+    );
     this.strokeUShape(wallLeft, wallRight, topY, arcCenterX, arcCenterY, arcRadius);
-    this.chamberGraphics.lineStyle(8, 0xcef9ff, 0.4);
+    this.chamberGraphics.lineStyle(
+      8,
+      parasiteAlertProgress > 0 ? 0xff8e97 : 0xcef9ff,
+      0.4 + parasiteAlertProgress * 0.18,
+    );
     this.strokeUShape(wallLeft, wallRight, topY, arcCenterX, arcCenterY, arcRadius);
-    this.chamberGraphics.lineStyle(2.8, 0xffffff, 0.2);
+    this.chamberGraphics.lineStyle(
+      2.8,
+      parasiteAlertProgress > 0 ? 0xffd4d7 : 0xffffff,
+      0.2 + parasiteAlertProgress * 0.16,
+    );
     this.strokeUShape(wallLeft, wallRight, topY, arcCenterX, arcCenterY, arcRadius);
-    this.chamberGraphics.fillStyle(0xa6e8ff, 0.08);
+    this.chamberGraphics.fillStyle(
+      parasiteAlertProgress > 0 ? 0xff7d85 : 0xa6e8ff,
+      0.08 + parasiteAlertProgress * 0.12,
+    );
     this.chamberGraphics.fillCircle(wallLeft, topY, 6);
     this.chamberGraphics.fillCircle(wallRight, topY, 6);
 
@@ -429,6 +458,37 @@ export class StatusPanel {
     }
   }
 
+  private drawStomachParasites(
+    parasites: UiStomachParasiteSnapshot[],
+    metrics: PanelMetrics,
+    elapsedSeconds: number,
+  ): void {
+    for (const parasite of parasites) {
+      const x =
+        metrics.chamberInnerX +
+        ((parasite.localX + 1) * 0.5) * metrics.chamberInnerWidth;
+      const y =
+        metrics.chamberInnerY +
+        ((parasite.localY + 1) * 0.5) * metrics.chamberInnerHeight;
+      const radius =
+        Math.max(
+          7,
+          parasite.radius *
+            Math.min(metrics.chamberInnerWidth, metrics.chamberInnerHeight) *
+            0.54,
+        );
+      getPickupDefinition('parasite').drawParticle(this.stomachParticleGraphics, {
+        x,
+        y,
+        radius,
+        angle: parasite.angle,
+        elapsedSeconds,
+        animationPhase: getPickupAnimationPhase(parasite.id),
+        alpha: 0.98,
+      });
+    }
+  }
+
   private setVisible(visible: boolean): void {
     this.panelGraphics.setVisible(visible);
     this.meterGraphics.setVisible(visible);
@@ -440,7 +500,7 @@ export class StatusPanel {
     this.readyBadge.setVisible(visible && (this.snapshot?.limbReady ?? false));
     this.segmentLabel.setVisible(visible);
     this.segmentValue.setVisible(visible);
-    for (const tier of pickupTiers) {
+    for (const tier of nutrientPickupTiers) {
       this.counterIcons[tier].setVisible(visible);
       this.counterTexts[tier].setVisible(visible);
     }

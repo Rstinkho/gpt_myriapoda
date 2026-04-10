@@ -10,6 +10,7 @@ import { shouldOccupyPurifiedHex } from '@/entities/plants/plantLifecycle';
 import type { Pickup } from '@/entities/pickups/Pickup';
 import type { PickupFactory } from '@/entities/pickups/PickupFactory';
 import { getPickupTierFromResource } from '@/entities/pickups/PickupRegistry';
+import { appendParasiteBonusDrop } from '@/entities/pickups/harmful';
 import { HexWorld } from '@/entities/world/HexWorld';
 import { SpawnSystem, enforceEnemyCap } from '@/entities/world/SpawnSystem';
 import { createCoordKey, type ChooseIndex } from '@/entities/world/WorldExpansion';
@@ -156,7 +157,11 @@ export class WorldSystem {
   }
 
   private handleEnemyKilled(payload: { enemyType: Enemy['type']; x: number; y: number }): void {
-    const drops = resolveEnemyDrops(payload.enemyType, this.randomFloat());
+    const drops = appendParasiteBonusDrop(
+      resolveEnemyDrops(payload.enemyType, this.randomFloat()),
+      this.randomFloat(),
+      tuning.parasiteDropChance,
+    );
     for (const resourceId of drops) {
       const angle = randomBetween(0, Math.PI * 2);
       const distance = randomBetween(4, 10);

@@ -57,7 +57,7 @@ interface TransitionPickupSnapshot {
 export class GameScene extends Phaser.Scene {
   private readonly eventBus = new Phaser.Events.EventEmitter();
   private accumulator = 0;
-  private uiMode: UiMode = 'inspect';
+  private uiMode: UiMode = 'minimal';
   private renderDeltaSeconds = tuning.fixedStepSeconds;
   private lastMoveIntent: MoveIntent = { ...stationaryMoveIntent };
   private stageTransitionActive = false;
@@ -229,6 +229,13 @@ export class GameScene extends Phaser.Scene {
 
   private render(): void {
     this.syncActorsToPhysics();
+    if (this.stageTransitionActive) {
+      this.myriapodaRenderer.clear();
+      this.plantGatherGraphics.clear();
+      this.debugGraphics.clear();
+      return;
+    }
+
     this.myriapodaRenderer.update(this.myriapoda);
     this.renderPlantGatherCue();
     this.renderDebug();
@@ -237,6 +244,13 @@ export class GameScene extends Phaser.Scene {
   private syncActorsToPhysics(): void {
     const elapsedSeconds = this.time.now / 1000;
     for (const pickup of this.pickups.values()) {
+      if (pickup.stepWorldLifecycle(this.renderDeltaSeconds)) {
+        this.collisions.forgetPickup(pickup.id);
+        pickup.destroy(this.physicsWorld.world);
+        this.pickups.delete(pickup.id);
+        continue;
+      }
+
       const position = vec2ToPixels(pickup.body.getPosition());
       pickup.sprite.setPosition(position.x, position.y);
       pickup.updateVisual(elapsedSeconds);
@@ -384,8 +398,11 @@ export class GameScene extends Phaser.Scene {
       ),
       limbReady: attackCooldown === 0,
       activeLimbId: this.combatSystem.getActiveLimbId(),
+      activeParasiteCount: this.myriapoda.stomach.getActiveParasiteCount(),
+      parasiteAlertProgress: this.myriapoda.stomach.getParasiteAlertProgress(),
       pickupCounts: getPickupCountsByTier(stomachParticles),
       stomachParticles,
+      stomachParasites: this.myriapoda.stomach.getUiParasiteSnapshots(),
       debug: showsWorldDebug(this.uiMode),
     };
   }

@@ -1,8 +1,13 @@
 import type Phaser from 'phaser';
 import type * as planck from 'planck';
 
-export type PickupTier = 'basic' | 'advanced' | 'rare';
-export type PickupResourceId = 'biomass' | 'tissue' | 'structuralCell';
+export type PickupTier = 'basic' | 'advanced' | 'rare' | 'harmful';
+export type NutrientPickupTier = Exclude<PickupTier, 'harmful'>;
+export type PickupResourceId =
+  | 'biomass'
+  | 'tissue'
+  | 'structuralCell'
+  | 'parasite';
 export type EnemyType = 'jellyfish';
 export type HexTypeId = 'dead' | 'restoring' | 'purified' | 'corrupted' | 'corridor';
 export type PlantType =
@@ -138,6 +143,14 @@ export interface UiStomachParticleSnapshot {
   radius: number;
 }
 
+export interface UiStomachParasiteSnapshot {
+  id: string;
+  localX: number;
+  localY: number;
+  angle: number;
+  radius: number;
+}
+
 export interface HudSnapshot {
   uiMode: UiMode;
   storedPickups: number;
@@ -153,7 +166,10 @@ export interface HudSnapshot {
   limbCooldownProgress: number;
   limbReady: boolean;
   activeLimbId: string | null;
-  pickupCounts: Record<PickupTier, number>;
+  pickupCounts: Record<NutrientPickupTier, number>;
+  activeParasiteCount: number;
+  parasiteAlertProgress: number;
   stomachParticles: UiStomachParticleSnapshot[];
+  stomachParasites: UiStomachParasiteSnapshot[];
   debug: boolean;
 }

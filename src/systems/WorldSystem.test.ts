@@ -344,7 +344,10 @@ describe('WorldSystem', () => {
       enemies as never,
       {
         chooseIndex: () => 0,
-        randomFloat: () => 0.05,
+        randomFloat: (() => {
+          const rolls = [0.05, 0.2];
+          return () => rolls.shift() ?? 0.2;
+        })(),
       },
     );
 
@@ -359,5 +362,42 @@ describe('WorldSystem', () => {
       pickupFactory.create.mock.calls.map((call) => call[3]?.resourceId),
     ).toEqual(['biomass', 'biomass', 'tissue']);
     expect(pickups.size).toBe(3);
+  });
+
+  it('adds a parasite bonus drop on the enemy parasite roll path', () => {
+    const eventBus = new TestEventBus();
+    const pickupFactory = createPickupFactory();
+    const plantFactory = createPlantFactory();
+    const enemyFactory = createEnemyFactory();
+    const pickups = new Map();
+    const plants = new Map();
+    const enemies = createEnemyMap(tuning.enemyCap);
+    const rolls = [0.5, 0.05];
+    const worldSystem = new WorldSystem(
+      {} as never,
+      eventBus as never,
+      pickupFactory as never,
+      plantFactory as never,
+      enemyFactory as never,
+      pickups as never,
+      plants as never,
+      enemies as never,
+      {
+        chooseIndex: () => 0,
+        randomFloat: () => rolls.shift() ?? 0.5,
+      },
+    );
+
+    eventBus.emit(GameEvents.enemyKilled, {
+      enemyType: 'jellyfish',
+      x: 40,
+      y: 24,
+    });
+
+    expect(pickupFactory.create).toHaveBeenCalledTimes(4);
+    expect(
+      pickupFactory.create.mock.calls.map((call) => call[3]?.resourceId),
+    ).toEqual(['biomass', 'biomass', 'biomass', 'parasite']);
+    expect(pickups.size).toBe(4);
   });
 });

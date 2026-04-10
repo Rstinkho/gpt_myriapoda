@@ -7,7 +7,7 @@ export class TopHeader {
   private readonly titleLineOne: Phaser.GameObjects.Text;
   private readonly titleLineTwo: Phaser.GameObjects.Text;
   private readonly tabLabel: Phaser.GameObjects.Text;
-  private uiMode: HudSnapshot['uiMode'] = 'inspect';
+  private uiMode: HudSnapshot['uiMode'] = 'minimal';
 
   constructor(private readonly scene: Phaser.Scene) {
     this.graphics = scene.add.graphics();

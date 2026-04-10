@@ -27,4 +27,16 @@ describe('PickupRegistry', () => {
     expect(definition.textureKey).toBe('pickup-rare-structural-cell');
     expect(definition.digestValue).toBe(4);
   });
+
+  it('registers parasite as a harmful pickup with stomach hazard metadata', () => {
+    const definition = getPickupDefinition('parasite');
+
+    expect(definition.tier).toBe('harmful');
+    expect(definition.isHarmful).toBe(true);
+    expect(definition.textureKey).toBe('pickup-harmful-parasite');
+    expect(definition.digestValue).toBe(0);
+    expect(definition.worldLifetimeSeconds).toBe(10);
+    expect(definition.despawnAnimationSeconds).toBeGreaterThan(0);
+    expect(definition.stomachEffect).toBe('parasite');
+  });
 });

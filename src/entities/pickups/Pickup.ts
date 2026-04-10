@@ -9,6 +9,7 @@ import {
   applyPickupSpriteAnimation,
   getPickupAnimationPhase,
 } from '@/entities/pickups/PickupVisuals';
+import { sampleParasiteWorldLifecycle } from '@/entities/pickups/harmful/parasite/parasiteLifecycle';
 import { pixelsToMeters, vec2FromPixels } from '@/physics/PhysicsUtils';
 
 export interface PickupOptions {
@@ -28,6 +29,7 @@ export class Pickup {
   private readonly baseWidth: number;
   private readonly baseHeight: number;
   private readonly baseAlpha: number;
+  private ageSeconds = 0;
 
   constructor(
     scene: Phaser.Scene,
@@ -77,6 +79,15 @@ export class Pickup {
     }
   }
 
+  stepWorldLifecycle(deltaSeconds: number): boolean {
+    if (!this.definition.worldLifetimeSeconds) {
+      return false;
+    }
+
+    this.ageSeconds += deltaSeconds;
+    return this.ageSeconds >= this.definition.worldLifetimeSeconds;
+  }
+
   updateVisual(elapsedSeconds: number): void {
     applyPickupSpriteAnimation(
       this.sprite,
@@ -89,6 +100,23 @@ export class Pickup {
       elapsedSeconds,
       this.animationPhase,
     );
+
+    if (
+      this.resourceId === 'parasite' &&
+      this.definition.worldLifetimeSeconds &&
+      this.definition.despawnAnimationSeconds
+    ) {
+      const lifecycle = sampleParasiteWorldLifecycle(
+        this.ageSeconds,
+        this.definition.worldLifetimeSeconds,
+        this.definition.despawnAnimationSeconds,
+      );
+      this.sprite.setDisplaySize(
+        this.sprite.displayWidth * lifecycle.scaleXMultiplier,
+        this.sprite.displayHeight * lifecycle.scaleYMultiplier,
+      );
+      this.sprite.setAlpha(this.sprite.alpha * lifecycle.alphaMultiplier);
+    }
   }
 
   destroy(world: planck.World): void {

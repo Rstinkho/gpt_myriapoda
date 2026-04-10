@@ -32,14 +32,18 @@ export class MyriapodaRenderer {
     this.elapsed += tuning.fixedStepSeconds;
     myriapoda.head.sprite.setVisible(false);
 
-    this.graphics.clear();
-    this.stomachParticleGraphics.clear();
-    this.stomachMaskGraphics.clear();
+    this.clear();
     this.renderBody(myriapoda);
     this.renderTail(myriapoda);
     this.limbRenderer.render(myriapoda);
     this.renderStomach(myriapoda);
     this.renderHead(myriapoda, headPosition.x, headPosition.y, myriapoda.head.body.getAngle());
+  }
+
+  clear(): void {
+    this.graphics.clear();
+    this.stomachParticleGraphics.clear();
+    this.stomachMaskGraphics.clear();
   }
 
   private renderBody(myriapoda: Myriapoda): void {
@@ -204,6 +208,18 @@ export class MyriapodaRenderer {
           alpha: 0.94,
         },
       );
+    }
+
+    for (const parasite of myriapoda.stomach.getUiParasiteSnapshots()) {
+      getPickupDefinition('parasite').drawParticle(this.stomachParticleGraphics, {
+        x: stomachAnchor.x + parasite.localX * chamberRadius,
+        y: stomachAnchor.y + parasite.localY * chamberRadius,
+        radius: chamberRadius * parasite.radius,
+        angle: parasite.angle,
+        elapsedSeconds: this.elapsed,
+        animationPhase: getPickupAnimationPhase(parasite.id),
+        alpha: 0.96,
+      });
     }
   }
 

@@ -125,6 +125,7 @@ export const biomassPickupDefinition: PickupDefinition = {
   digestValue: 2,
   radius: 12,
   palette: biomassPalette,
+  isHarmful: false,
   buildTexture: buildBiomassTexture,
   drawParticle: drawBiomass,
 };

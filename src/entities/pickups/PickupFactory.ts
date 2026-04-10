@@ -4,7 +4,7 @@ import type { PickupResourceId, PickupTier } from '@/game/types';
 import { Pickup, type PickupOptions } from '@/entities/pickups/Pickup';
 import {
   getDefaultPickupResourceId,
-  pickupTiers,
+  nutrientPickupTiers,
 } from '@/entities/pickups/PickupRegistry';
 import { randomItem } from '@/utils/random';
 
@@ -23,7 +23,7 @@ export class PickupFactory {
   create(
     x: number,
     y: number,
-    tier: PickupTier = randomItem(pickupTiers),
+    tier: PickupTier = randomItem([...nutrientPickupTiers]),
     options: PickupCreateOptions = {},
   ): Pickup {
     this.serial += 1;

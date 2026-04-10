@@ -41,6 +41,7 @@ describe('uiState', () => {
         { resourceId: 'structuralCell' },
         { resourceId: 'biomass' },
         { resourceId: 'tissue' },
+        { resourceId: 'parasite' },
       ]),
     ).toEqual({
       basic: 2,

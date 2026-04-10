@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { tuning } from '@/game/tuning';
 import { GameEvents } from '@/game/events';
+import { appendParasiteBonusDrop } from '@/entities/pickups/harmful';
 import { getPickupTierFromResource } from '@/entities/pickups/PickupRegistry';
 import type { Myriapoda } from '@/entities/myriapoda/Myriapoda';
 import type { Plant } from '@/entities/plants/Plant';
@@ -128,7 +129,12 @@ export class PlantSystem {
       }
 
       const origin = plant.getDropOriginPixels();
-      for (const resourceId of outputs) {
+      const drops = appendParasiteBonusDrop(
+        outputs,
+        Math.random(),
+        tuning.parasiteDropChance,
+      );
+      for (const resourceId of drops) {
         const angle = randomBetween(0, Math.PI * 2);
         const distancePx = randomBetween(
           tuning.plantDropScatterDistanceMin,

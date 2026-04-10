@@ -142,6 +142,7 @@ export const structuralCellPickupDefinition: PickupDefinition = {
   radius: 12,
   palette: structuralCellPalette,
   animationProfile: structuralCellAnimation,
+  isHarmful: false,
   buildTexture: buildStructuralCellTexture,
   drawParticle: drawStructuralCell,
 };

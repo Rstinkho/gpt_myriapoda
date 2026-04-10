@@ -141,6 +141,7 @@ export const tissuePickupDefinition: PickupDefinition = {
   digestValue: 3,
   radius: 12,
   palette: tissuePalette,
+  isHarmful: false,
   buildTexture: buildTissueTexture,
   drawParticle: drawTissue,
 };
