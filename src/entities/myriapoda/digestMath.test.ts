@@ -7,8 +7,8 @@ describe('digestMath', () => {
       [
         {
           id: 'a',
-          shape: 'triangle',
-          color: 0xffffff,
+          resourceId: 'biomass',
+          tier: 'basic',
           progress: 11.8,
           digestValue: 2,
         },

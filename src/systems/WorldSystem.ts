@@ -5,6 +5,7 @@ import { Enemy } from '@/entities/enemies/Enemy';
 import { EnemyFactory } from '@/entities/enemies/EnemyFactory';
 import { Pickup } from '@/entities/pickups/Pickup';
 import { PickupFactory } from '@/entities/pickups/PickupFactory';
+import { pickupTiers } from '@/entities/pickups/PickupRegistry';
 import { HexWorld } from '@/entities/world/HexWorld';
 import { SpawnSystem, enforceEnemyCap } from '@/entities/world/SpawnSystem';
 import { WorldRenderer } from '@/rendering/WorldRenderer';
@@ -93,11 +94,11 @@ export class WorldSystem {
     for (let index = 0; index < tuning.enemyShardCount; index += 1) {
       const angle = randomBetween(0, Math.PI * 2);
       const distance = randomBetween(4, 10);
-      const type = randomItem(['triangle', 'crystal', 'bone'] as const);
+      const tier = randomItem(pickupTiers);
       const pickup = this.pickupFactory.create(
         payload.x + Math.cos(angle) * distance,
         payload.y + Math.sin(angle) * distance,
-        type,
+        tier,
         {
           scale: tuning.enemyShardScale,
           alpha: 0.85,

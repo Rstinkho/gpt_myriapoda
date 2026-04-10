@@ -1,15 +1,16 @@
 import * as planck from 'planck';
 import { tuning } from '@/game/tuning';
-import type { MatterShape } from '@/game/types';
+import type { PickupResourceId, PickupTier } from '@/game/types';
+import { getPickupDefinition } from '@/entities/pickups/PickupRegistry';
 import { randomBetween } from '@/utils/random';
 
 export interface StomachParticle {
   id: string;
   body: planck.Body;
-  color: number;
   digestValue: number;
   radiusMeters: number;
-  shape: MatterShape;
+  resourceId: PickupResourceId;
+  tier: PickupTier;
 }
 
 export class StomachSystem {
@@ -51,11 +52,12 @@ export class StomachSystem {
     this.mixerBody.createFixture(planck.Box(0.04, radius * 0.56));
   }
 
-  add(shape: MatterShape, color: number, digestValue: number): void {
+  add(resourceId: PickupResourceId): void {
     while (this.particles.length >= tuning.stomachParticleLimit) {
       this.removeParticle(this.particles[0], true);
     }
 
+    const definition = getPickupDefinition(resourceId);
     this.serial += 1;
     const radiusMeters = randomBetween(0.045, 0.08);
     const spawnAngle = randomBetween(0, Math.PI * 2);
@@ -88,12 +90,12 @@ export class StomachSystem {
     this.particles.push({
       id: `matter-${this.serial}`,
       body,
-      shape,
-      color,
-      digestValue,
+      resourceId,
+      tier: definition.tier,
+      digestValue: definition.digestValue,
       radiusMeters,
     });
-    this.biomass += digestValue;
+    this.biomass += definition.digestValue;
   }
 
   setAnchor(x: number, y: number): void {

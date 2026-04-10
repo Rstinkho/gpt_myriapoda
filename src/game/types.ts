@@ -1,10 +1,27 @@
 import type Phaser from 'phaser';
 import type * as planck from 'planck';
 
-export type MatterShape = 'triangle' | 'crystal' | 'bone';
+export type PickupTier = 'basic' | 'advanced' | 'rare';
+export type PickupResourceId = 'biomass' | 'tissue' | 'structuralCell';
 export type EnemyType = 'jellyfish';
-export type PickupType = MatterShape;
 export type UiMode = 'inspect' | 'panel' | 'minimal';
+
+export interface PickupPalette {
+  base: number;
+  shadow: number;
+  highlight: number;
+  detail: number;
+  glow?: number;
+}
+
+export interface PickupAnimationProfile {
+  pulseSpeed: number;
+  shimmerSpeed: number;
+  scaleAmplitude: number;
+  alphaAmplitude: number;
+  rotationAmplitude: number;
+  glowAlpha: number;
+}
 
 export type CollisionTag =
   | 'head-body'
@@ -39,8 +56,8 @@ export interface Segment {
 
 export interface MatterPacket {
   id: string;
-  shape: MatterShape;
-  color: number;
+  resourceId: PickupResourceId;
+  tier: PickupTier;
   progress: number;
   digestValue: number;
 }
@@ -92,8 +109,7 @@ export interface PhysicsSpriteBinding {
 
 export interface UiStomachParticleSnapshot {
   id: string;
-  shape: MatterShape;
-  color: number;
+  resourceId: PickupResourceId;
   localX: number;
   localY: number;
   angle: number;
@@ -115,7 +131,7 @@ export interface HudSnapshot {
   limbCooldownProgress: number;
   limbReady: boolean;
   activeLimbId: string | null;
-  pickupCounts: Record<PickupType, number>;
+  pickupCounts: Record<PickupTier, number>;
   stomachParticles: UiStomachParticleSnapshot[];
   debug: boolean;
 }

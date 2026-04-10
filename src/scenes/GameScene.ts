@@ -25,7 +25,7 @@ import {
   createUiStomachParticleSnapshots,
   cycleUiMode,
   getLimbCooldownProgress,
-  getPickupCountsByType,
+  getPickupCountsByTier,
   showsWorldDebug,
 } from '@/ui/uiState';
 
@@ -160,10 +160,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   private syncActorsToPhysics(): void {
+    const elapsedSeconds = this.time.now / 1000;
     for (const pickup of this.pickups.values()) {
       const position = vec2ToPixels(pickup.body.getPosition());
       pickup.sprite.setPosition(position.x, position.y);
-      pickup.sprite.setRotation(pickup.body.getAngle());
+      pickup.updateVisual(elapsedSeconds);
     }
 
     for (const enemy of this.enemies.values()) {
@@ -252,8 +253,7 @@ export class GameScene extends Phaser.Scene {
     const stomachParticles = createUiStomachParticleSnapshots(
       this.myriapoda.stomach.particles.map((particle) => ({
         id: particle.id,
-        shape: particle.shape,
-        color: particle.color,
+        resourceId: particle.resourceId,
         radiusMeters: particle.radiusMeters,
         position: particle.body.getPosition(),
         angle: particle.body.getAngle(),
@@ -281,7 +281,7 @@ export class GameScene extends Phaser.Scene {
       ),
       limbReady: attackCooldown === 0,
       activeLimbId: this.combatSystem.getActiveLimbId(),
-      pickupCounts: getPickupCountsByType(stomachParticles),
+      pickupCounts: getPickupCountsByTier(stomachParticles),
       stomachParticles,
       debug: showsWorldDebug(this.uiMode),
     };

@@ -4,7 +4,7 @@ import {
   cycleUiMode,
   getLimbCooldownProgress,
   getModeDotStates,
-  getPickupCountsByType,
+  getPickupCountsByTier,
   showsStatusPanel,
   showsWorldDebug,
 } from '@/ui/uiState';
@@ -34,18 +34,18 @@ describe('uiState', () => {
     expect(getLimbCooldownProgress(4, 3)).toBe(0);
   });
 
-  it('aggregates stored pickup counts by shape', () => {
+  it('aggregates stored pickup counts by tier', () => {
     expect(
-      getPickupCountsByType([
-        { shape: 'triangle' },
-        { shape: 'bone' },
-        { shape: 'triangle' },
-        { shape: 'crystal' },
+      getPickupCountsByTier([
+        { resourceId: 'biomass' },
+        { resourceId: 'structuralCell' },
+        { resourceId: 'biomass' },
+        { resourceId: 'tissue' },
       ]),
     ).toEqual({
-      triangle: 2,
-      crystal: 1,
-      bone: 1,
+      basic: 2,
+      advanced: 1,
+      rare: 1,
     });
   });
 
@@ -54,16 +54,14 @@ describe('uiState', () => {
       [
         {
           id: 'a',
-          shape: 'triangle',
-          color: 0xffffff,
+          resourceId: 'biomass',
           radiusMeters: 0.08,
           position: { x: 0.2, y: -0.25 },
           angle: 0.4,
         },
         {
           id: 'b',
-          shape: 'bone',
-          color: 0xff00aa,
+          resourceId: 'structuralCell',
           radiusMeters: 0.05,
           position: { x: 2, y: -2 },
           angle: -0.2,
@@ -76,8 +74,7 @@ describe('uiState', () => {
     expect(snapshots).toHaveLength(2);
     expect(snapshots[0]).toMatchObject({
       id: 'a',
-      shape: 'triangle',
-      color: 0xffffff,
+      resourceId: 'biomass',
       angle: 0.4,
     });
     expect(snapshots[0].localX).toBeGreaterThan(0);

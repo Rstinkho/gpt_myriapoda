@@ -1,41 +1,11 @@
 import Phaser from 'phaser';
 import { tuning } from '@/game/tuning';
-import type { MatterShape } from '@/game/types';
+import { getPickupDefinition } from '@/entities/pickups/PickupRegistry';
+import { getPickupAnimationPhase } from '@/entities/pickups/PickupVisuals';
 import { Myriapoda } from '@/entities/myriapoda/Myriapoda';
 import { vec2ToPixels } from '@/physics/PhysicsUtils';
 import { LimbRenderer } from '@/rendering/LimbRenderer';
 import { rotateVector } from '@/utils/math';
-
-const matterShapePoints: Record<MatterShape, Array<{ x: number; y: number }>> = {
-  triangle: [
-    { x: 0, y: -1.05 },
-    { x: 0.95, y: 0.8 },
-    { x: -0.95, y: 0.8 },
-  ],
-  crystal: [
-    { x: 0, y: -1.08 },
-    { x: 0.86, y: -0.22 },
-    { x: 0.46, y: 1.02 },
-    { x: -0.46, y: 1.02 },
-    { x: -0.86, y: -0.22 },
-  ],
-  bone: [
-    { x: -1.1, y: -0.48 },
-    { x: -0.58, y: -0.88 },
-    { x: -0.08, y: -0.52 },
-    { x: 0.08, y: -0.52 },
-    { x: 0.58, y: -0.88 },
-    { x: 1.1, y: -0.48 },
-    { x: 0.82, y: 0 },
-    { x: 1.1, y: 0.48 },
-    { x: 0.58, y: 0.88 },
-    { x: 0.08, y: 0.52 },
-    { x: -0.08, y: 0.52 },
-    { x: -0.58, y: 0.88 },
-    { x: -1.1, y: 0.48 },
-    { x: -0.82, y: 0 },
-  ],
-};
 
 export class MyriapodaRenderer {
   private static readonly bodyCircleScale = 1.3;
@@ -222,13 +192,17 @@ export class MyriapodaRenderer {
 
     for (const particle of myriapoda.stomach.particles) {
       const local = vec2ToPixels(particle.body.getPosition());
-      this.drawMatterShape(
-        stomachAnchor.x + local.x,
-        stomachAnchor.y + local.y,
-        particle.radiusMeters * tuning.pixelsPerMeter * 1.28,
-        particle.body.getAngle(),
-        particle.color,
-        particle.shape,
+      getPickupDefinition(particle.resourceId).drawParticle(
+        this.stomachParticleGraphics,
+        {
+          x: stomachAnchor.x + local.x,
+          y: stomachAnchor.y + local.y,
+          radius: particle.radiusMeters * tuning.pixelsPerMeter * 1.28,
+          angle: particle.body.getAngle(),
+          elapsedSeconds: this.elapsed,
+          animationPhase: getPickupAnimationPhase(particle.id),
+          alpha: 0.94,
+        },
       );
     }
   }
@@ -257,25 +231,6 @@ export class MyriapodaRenderer {
     this.graphics.strokePoints(tailPoints, false, true);
     this.graphics.fillStyle(0xaee7c0, 0.55);
     this.graphics.fillCircle(tailTip.x, tailTip.y, tuning.tailRadiusPx);
-  }
-
-  private drawMatterShape(
-    x: number,
-    y: number,
-    radius: number,
-    angle: number,
-    color: number,
-    shape: MatterShape,
-  ): void {
-    const points = matterShapePoints[shape].map((point) => {
-      const rotated = rotateVector(point.x * radius, point.y * radius, angle);
-      return new Phaser.Math.Vector2(x + rotated.x, y + rotated.y);
-    });
-
-    this.stomachParticleGraphics.fillStyle(color, 0.92);
-    this.stomachParticleGraphics.fillPoints(points, true);
-    this.stomachParticleGraphics.lineStyle(Math.max(0.4, 0.9 * (tuning.headRadius / 11)), 0xfff6fb, 0.18);
-    this.stomachParticleGraphics.strokePoints(points, true, true);
   }
 
   private renderHead(myriapoda: Myriapoda, x: number, y: number, angle: number): void {

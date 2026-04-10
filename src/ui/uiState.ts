@@ -1,15 +1,18 @@
 import type {
   HudSnapshot,
-  MatterShape,
-  PickupType,
+  PickupResourceId,
+  PickupTier,
   UiMode,
   UiStomachParticleSnapshot,
 } from '@/game/types';
+import {
+  getPickupTierFromResource,
+  pickupTiers,
+} from '@/entities/pickups/PickupRegistry';
 
 export interface StomachParticleRenderSource {
   id: string;
-  shape: MatterShape;
-  color: number;
+  resourceId: PickupResourceId;
   radiusMeters: number;
   position: {
     x: number;
@@ -17,8 +20,6 @@ export interface StomachParticleRenderSource {
   };
   angle: number;
 }
-
-const pickupTypes: PickupType[] = ['triangle', 'crystal', 'bone'];
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
@@ -67,20 +68,20 @@ export function getLimbCooldownProgress(
   return clamp(1 - attackCooldownSeconds / maxCooldownSeconds, 0, 1);
 }
 
-export function createEmptyPickupCounts(): Record<PickupType, number> {
+export function createEmptyPickupCounts(): Record<PickupTier, number> {
   return {
-    triangle: 0,
-    crystal: 0,
-    bone: 0,
+    basic: 0,
+    advanced: 0,
+    rare: 0,
   };
 }
 
-export function getPickupCountsByType(
-  particles: ReadonlyArray<{ shape: MatterShape }>,
-): Record<PickupType, number> {
+export function getPickupCountsByTier(
+  particles: ReadonlyArray<{ resourceId: PickupResourceId }>,
+): Record<PickupTier, number> {
   const counts = createEmptyPickupCounts();
   for (const particle of particles) {
-    counts[particle.shape] += 1;
+    counts[getPickupTierFromResource(particle.resourceId)] += 1;
   }
 
   return counts;
@@ -95,8 +96,7 @@ export function createUiStomachParticleSnapshots(
 
   return particles.map((particle) => ({
     id: particle.id,
-    shape: particle.shape,
-    color: particle.color,
+    resourceId: particle.resourceId,
     localX: clamp(particle.position.x / usableRadius, -1, 1),
     localY: clamp(particle.position.y / usableRadius, -1, 1),
     angle: particle.angle,
@@ -109,10 +109,10 @@ export function isHudDebugEnabled(snapshot: Pick<HudSnapshot, 'uiMode'>): boolea
 }
 
 export function getPickupCountEntries(
-  pickupCounts: Record<PickupType, number>,
-): Array<{ type: PickupType; count: number }> {
-  return pickupTypes.map((type) => ({
-    type,
-    count: pickupCounts[type],
+  pickupCounts: Record<PickupTier, number>,
+): Array<{ tier: PickupTier; count: number }> {
+  return pickupTiers.map((tier) => ({
+    tier,
+    count: pickupCounts[tier],
   }));
 }

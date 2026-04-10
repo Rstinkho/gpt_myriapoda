@@ -1,7 +1,14 @@
 import Phaser from 'phaser';
 import * as planck from 'planck';
-import type { PickupType } from '@/game/types';
-import { pickupDefinitions } from '@/entities/pickups/PickupTypes';
+import type { PickupResourceId, PickupTier } from '@/game/types';
+import {
+  getPickupDefinition,
+  type PickupDefinition,
+} from '@/entities/pickups/PickupRegistry';
+import {
+  applyPickupSpriteAnimation,
+  getPickupAnimationPhase,
+} from '@/entities/pickups/PickupVisuals';
 import { pixelsToMeters, vec2FromPixels } from '@/physics/PhysicsUtils';
 
 export interface PickupOptions {
@@ -11,28 +18,37 @@ export interface PickupOptions {
 }
 
 export class Pickup {
-  readonly definition;
+  readonly definition: PickupDefinition;
   readonly sprite: Phaser.GameObjects.Image;
   readonly body: planck.Body;
+  readonly tier: PickupTier;
+  readonly resourceId: PickupResourceId;
   readonly scale: number;
+  private readonly animationPhase: number;
+  private readonly baseWidth: number;
+  private readonly baseHeight: number;
+  private readonly baseAlpha: number;
 
   constructor(
     scene: Phaser.Scene,
     world: planck.World,
     readonly id: string,
-    readonly type: PickupType,
+    resourceId: PickupResourceId,
     x: number,
     y: number,
     options: PickupOptions = {},
   ) {
-    this.definition = pickupDefinitions[type];
+    this.resourceId = resourceId;
+    this.definition = getPickupDefinition(resourceId);
+    this.tier = this.definition.tier;
     this.scale = options.scale ?? 1;
+    this.animationPhase = getPickupAnimationPhase(id);
     this.sprite = scene.add.image(x, y, this.definition.textureKey);
-    this.sprite.setDisplaySize(
-      this.definition.radius * 2.4 * this.scale,
-      this.definition.radius * 2.4 * this.scale,
-    );
-    this.sprite.setAlpha(options.alpha ?? 0.92);
+    this.baseWidth = this.definition.radius * 2.4 * this.scale;
+    this.baseHeight = this.definition.radius * 2.4 * this.scale;
+    this.baseAlpha = options.alpha ?? 0.92;
+    this.sprite.setDisplaySize(this.baseWidth, this.baseHeight);
+    this.sprite.setAlpha(this.baseAlpha);
     this.sprite.setDepth(6);
 
     this.body = world.createBody({
@@ -59,6 +75,20 @@ export class Pickup {
         true,
       );
     }
+  }
+
+  updateVisual(elapsedSeconds: number): void {
+    applyPickupSpriteAnimation(
+      this.sprite,
+      this.baseWidth,
+      this.baseHeight,
+      this.baseAlpha,
+      this.body.getAngle(),
+      this.definition.palette,
+      this.definition.animationProfile,
+      elapsedSeconds,
+      this.animationPhase,
+    );
   }
 
   destroy(world: planck.World): void {

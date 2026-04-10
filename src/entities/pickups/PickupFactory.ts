@@ -1,10 +1,16 @@
 import Phaser from 'phaser';
 import * as planck from 'planck';
-import type { PickupType } from '@/game/types';
+import type { PickupResourceId, PickupTier } from '@/game/types';
 import { Pickup, type PickupOptions } from '@/entities/pickups/Pickup';
+import {
+  getDefaultPickupResourceId,
+  pickupTiers,
+} from '@/entities/pickups/PickupRegistry';
 import { randomItem } from '@/utils/random';
 
-const pickupTypes: PickupType[] = ['triangle', 'crystal', 'bone'];
+export interface PickupCreateOptions extends PickupOptions {
+  resourceId?: PickupResourceId;
+}
 
 export class PickupFactory {
   private serial = 0;
@@ -17,10 +23,19 @@ export class PickupFactory {
   create(
     x: number,
     y: number,
-    type: PickupType = randomItem(pickupTypes),
-    options: PickupOptions = {},
+    tier: PickupTier = randomItem(pickupTiers),
+    options: PickupCreateOptions = {},
   ): Pickup {
     this.serial += 1;
-    return new Pickup(this.scene, this.world, `pickup-${this.serial}`, type, x, y, options);
+    const resourceId = options.resourceId ?? getDefaultPickupResourceId(tier);
+    return new Pickup(
+      this.scene,
+      this.world,
+      `pickup-${this.serial}`,
+      resourceId,
+      x,
+      y,
+      options,
+    );
   }
 }

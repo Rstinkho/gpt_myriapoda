@@ -1,44 +1,19 @@
 import Phaser from 'phaser';
-import { textureKeys } from '@/game/assets';
 import type {
   HudSnapshot,
-  MatterShape,
-  PickupType,
+  PickupTier,
   UiStomachParticleSnapshot,
 } from '@/game/types';
+import {
+  getDefaultPickupDefinition,
+  getPickupDefinition,
+  pickupTiers,
+} from '@/entities/pickups/PickupRegistry';
+import {
+  applyPickupSpriteAnimation,
+  getPickupAnimationPhase,
+} from '@/entities/pickups/PickupVisuals';
 import { getPickupCountEntries, showsStatusPanel } from '@/ui/uiState';
-import { rotateVector } from '@/utils/math';
-
-const matterShapePoints: Record<MatterShape, Array<{ x: number; y: number }>> = {
-  triangle: [
-    { x: 0, y: -1.05 },
-    { x: 0.95, y: 0.8 },
-    { x: -0.95, y: 0.8 },
-  ],
-  crystal: [
-    { x: 0, y: -1.08 },
-    { x: 0.86, y: -0.22 },
-    { x: 0.46, y: 1.02 },
-    { x: -0.46, y: 1.02 },
-    { x: -0.86, y: -0.22 },
-  ],
-  bone: [
-    { x: -1.1, y: -0.48 },
-    { x: -0.58, y: -0.88 },
-    { x: -0.08, y: -0.52 },
-    { x: 0.08, y: -0.52 },
-    { x: 0.58, y: -0.88 },
-    { x: 1.1, y: -0.48 },
-    { x: 0.82, y: 0 },
-    { x: 1.1, y: 0.48 },
-    { x: 0.58, y: 0.88 },
-    { x: 0.08, y: 0.52 },
-    { x: -0.08, y: 0.52 },
-    { x: -0.58, y: 0.88 },
-    { x: -1.1, y: 0.48 },
-    { x: -0.82, y: 0 },
-  ],
-};
 
 interface PanelMetrics {
   x: number;
@@ -72,8 +47,9 @@ export class StatusPanel {
   private readonly readyBadge: Phaser.GameObjects.Text;
   private readonly segmentLabel: Phaser.GameObjects.Text;
   private readonly segmentValue: Phaser.GameObjects.Text;
-  private readonly counterIcons: Record<PickupType, Phaser.GameObjects.Image>;
-  private readonly counterTexts: Record<PickupType, Phaser.GameObjects.Text>;
+  private readonly counterIcons: Record<PickupTier, Phaser.GameObjects.Image>;
+  private readonly counterTexts: Record<PickupTier, Phaser.GameObjects.Text>;
+  private readonly counterIconPhases: Record<PickupTier, number>;
   private metrics?: PanelMetrics;
   private snapshot?: HudSnapshot;
 
@@ -138,26 +114,26 @@ export class StatusPanel {
     this.segmentValue.setScrollFactor(0).setDepth(1002);
 
     this.counterIcons = {
-      triangle: scene.add.image(0, 0, textureKeys.pickupTriangle),
-      crystal: scene.add.image(0, 0, textureKeys.pickupCrystal),
-      bone: scene.add.image(0, 0, textureKeys.pickupBone),
+      basic: scene.add.image(0, 0, getDefaultPickupDefinition('basic').textureKey),
+      advanced: scene.add.image(0, 0, getDefaultPickupDefinition('advanced').textureKey),
+      rare: scene.add.image(0, 0, getDefaultPickupDefinition('rare').textureKey),
     };
     this.counterTexts = {
-      triangle: scene.add.text(0, 0, '0', {
+      basic: scene.add.text(0, 0, '0', {
         fontFamily: 'Trebuchet MS',
         fontSize: '16px',
         color: '#eefbff',
         stroke: '#061014',
         strokeThickness: 4,
       }),
-      crystal: scene.add.text(0, 0, '0', {
+      advanced: scene.add.text(0, 0, '0', {
         fontFamily: 'Trebuchet MS',
         fontSize: '16px',
         color: '#eefbff',
         stroke: '#061014',
         strokeThickness: 4,
       }),
-      bone: scene.add.text(0, 0, '0', {
+      rare: scene.add.text(0, 0, '0', {
         fontFamily: 'Trebuchet MS',
         fontSize: '16px',
         color: '#eefbff',
@@ -165,10 +141,15 @@ export class StatusPanel {
         strokeThickness: 4,
       }),
     };
+    this.counterIconPhases = {
+      basic: getPickupAnimationPhase('status-basic'),
+      advanced: getPickupAnimationPhase('status-advanced'),
+      rare: getPickupAnimationPhase('status-rare'),
+    };
 
-    for (const type of ['triangle', 'crystal', 'bone'] as const) {
-      this.counterIcons[type].setScrollFactor(0).setDepth(1002);
-      this.counterTexts[type].setScrollFactor(0).setDepth(1002);
+    for (const tier of pickupTiers) {
+      this.counterIcons[tier].setScrollFactor(0).setDepth(1002);
+      this.counterTexts[tier].setScrollFactor(0).setDepth(1002);
     }
   }
 
@@ -212,17 +193,17 @@ export class StatusPanel {
     this.segmentValue.setPosition(x + 176, y + 184);
 
     const counterEntries = getPickupCountEntries({
-      triangle: 0,
-      crystal: 0,
-      bone: 0,
+      basic: 0,
+      advanced: 0,
+      rare: 0,
     });
     const slotWidth = (width - 48) / counterEntries.length;
     counterEntries.forEach((entry, index) => {
       const iconX = x + 24 + slotWidth * index + 16;
       const textX = iconX + 24;
-      this.counterIcons[entry.type].setPosition(iconX, pickupRowY);
-      this.counterIcons[entry.type].setDisplaySize(24, 24);
-      this.counterTexts[entry.type].setPosition(textX, pickupRowY - 11);
+      this.counterIcons[entry.tier].setPosition(iconX, pickupRowY);
+      this.counterIcons[entry.tier].setDisplaySize(24, 24);
+      this.counterTexts[entry.tier].setPosition(textX, pickupRowY - 11);
     });
 
     this.redraw();
@@ -245,7 +226,7 @@ export class StatusPanel {
     this.segmentValue.setText(String(snapshot.segments));
     this.readyBadge.setVisible(snapshot.limbReady);
     for (const entry of getPickupCountEntries(snapshot.pickupCounts)) {
-      this.counterTexts[entry.type].setText(String(entry.count));
+      this.counterTexts[entry.tier].setText(String(entry.count));
     }
     this.redraw();
   }
@@ -257,6 +238,7 @@ export class StatusPanel {
 
     const metrics = this.metrics;
     const snapshot = this.snapshot;
+    const elapsedSeconds = this.scene.time.now / 1000;
 
     this.panelGraphics.clear();
     this.meterGraphics.clear();
@@ -304,8 +286,26 @@ export class StatusPanel {
       );
     }
 
+    this.animateCounterIcons(elapsedSeconds);
     this.drawStomachChamber(metrics);
-    this.drawStomachParticles(snapshot.stomachParticles, metrics);
+    this.drawStomachParticles(snapshot.stomachParticles, metrics, elapsedSeconds);
+  }
+
+  private animateCounterIcons(elapsedSeconds: number): void {
+    for (const tier of pickupTiers) {
+      const definition = getDefaultPickupDefinition(tier);
+      applyPickupSpriteAnimation(
+        this.counterIcons[tier],
+        24,
+        24,
+        0.96,
+        0,
+        definition.palette,
+        definition.animationProfile,
+        elapsedSeconds,
+        this.counterIconPhases[tier],
+      );
+    }
   }
 
   private drawStomachChamber(metrics: PanelMetrics): void {
@@ -398,6 +398,7 @@ export class StatusPanel {
   private drawStomachParticles(
     particles: UiStomachParticleSnapshot[],
     metrics: PanelMetrics,
+    elapsedSeconds: number,
   ): void {
     for (const particle of particles) {
       const x =
@@ -407,28 +408,25 @@ export class StatusPanel {
         metrics.chamberInnerY +
         ((particle.localY + 1) * 0.5) * metrics.chamberInnerHeight;
       const radius =
-        Math.max(6, particle.radius * Math.min(metrics.chamberInnerWidth, metrics.chamberInnerHeight) * 0.54);
-      this.drawMatterShape(x, y, radius, particle.angle, particle.color, particle.shape);
+        Math.max(
+          6,
+          particle.radius *
+            Math.min(metrics.chamberInnerWidth, metrics.chamberInnerHeight) *
+            0.54,
+        );
+      getPickupDefinition(particle.resourceId).drawParticle(
+        this.stomachParticleGraphics,
+        {
+          x,
+          y,
+          radius,
+          angle: particle.angle,
+          elapsedSeconds,
+          animationPhase: getPickupAnimationPhase(particle.id),
+          alpha: 0.96,
+        },
+      );
     }
-  }
-
-  private drawMatterShape(
-    x: number,
-    y: number,
-    radius: number,
-    angle: number,
-    color: number,
-    shape: MatterShape,
-  ): void {
-    const points = matterShapePoints[shape].map((point) => {
-      const rotated = rotateVector(point.x * radius, point.y * radius, angle);
-      return new Phaser.Math.Vector2(x + rotated.x, y + rotated.y);
-    });
-
-    this.stomachParticleGraphics.fillStyle(color, 0.92);
-    this.stomachParticleGraphics.fillPoints(points, true);
-    this.stomachParticleGraphics.lineStyle(0.85, 0xfff7fb, 0.22);
-    this.stomachParticleGraphics.strokePoints(points, true, true);
   }
 
   private setVisible(visible: boolean): void {
@@ -442,9 +440,9 @@ export class StatusPanel {
     this.readyBadge.setVisible(visible && (this.snapshot?.limbReady ?? false));
     this.segmentLabel.setVisible(visible);
     this.segmentValue.setVisible(visible);
-    for (const type of ['triangle', 'crystal', 'bone'] as const) {
-      this.counterIcons[type].setVisible(visible);
-      this.counterTexts[type].setVisible(visible);
+    for (const tier of pickupTiers) {
+      this.counterIcons[tier].setVisible(visible);
+      this.counterTexts[tier].setVisible(visible);
     }
   }
 }
