@@ -252,7 +252,7 @@ export class MyriapodaRenderer {
     this.graphics.strokeEllipse(x, y, headWidth, headHeight);
 
     this.renderVacuumMouth(x, y, angle, scale, mouthOpen, consumePulse);
-    this.renderVacuumWisps(vacuum, scale);
+    this.renderVacuumVortex(vacuum, scale);
 
     const leftEye = rotateVector(2.4 * scale, -4.6 * scale, angle);
     const rightEye = rotateVector(2.4 * scale, 4.6 * scale, angle);
@@ -308,7 +308,7 @@ export class MyriapodaRenderer {
     );
   }
 
-  private renderVacuumWisps(
+  private renderVacuumVortex(
     vacuum: Myriapoda['vacuum'],
     scale: number,
   ): void {
@@ -324,64 +324,121 @@ export class MyriapodaRenderer {
       x: -forward.y,
       y: forward.x,
     };
-    const flowSpeed = 0.7 + vacuum.suctionAmount * 1.6;
-    const outerWidth = tuning.vacuumWispWidth * (0.9 + vacuum.suctionAmount * 0.35) * scale;
-    const outerAlpha = tuning.vacuumWispAlpha * (0.45 + vacuum.suctionAmount * 0.55);
-    const innerWidth = outerWidth * 0.48;
-    const wispDenominator = Math.max(1, tuning.vacuumWispCount - 1);
+    const strength = Math.max(0.22, vacuum.suctionAmount);
+    const spinSpeed = 4.8 + strength * 6.4;
+    const phase = this.elapsed * spinSpeed;
+    const ribbonCount = 2;
+    const ringCount = 3;
+    const tunnelLength = tuning.vacuumConeLength * (0.86 + strength * 0.12);
+    const outerAlpha = tuning.vacuumWispAlpha * (0.8 + strength * 0.62);
+    const outerWidth = tuning.vacuumWispWidth * (1.55 + strength * 0.52) * scale;
 
-    for (let index = 0; index < tuning.vacuumWispCount; index += 1) {
-      const lane = (index / wispDenominator) * 2 - 1;
-      const travel = (this.elapsed * flowSpeed + index * 0.21) % 1;
-      const angleOffset = lane * tuning.headEatConeHalfAngle * 0.72;
-      const startAngle = vacuum.coneAngle + angleOffset;
-      const midAngle = vacuum.coneAngle + angleOffset * 0.42;
-      const farDistance = tuning.vacuumConeLength * (0.96 - travel * 0.56);
-      const nearDistance = Math.max(tuning.headRadius * 1.15, farDistance - tuning.vacuumConeLength * 0.28);
-      const start = {
-        x: vacuum.mouthPosition.x + Math.cos(startAngle) * farDistance,
-        y: vacuum.mouthPosition.y + Math.sin(startAngle) * farDistance,
+    for (let ribbon = 0; ribbon < ribbonCount; ribbon += 1) {
+      const ribbonPhase = phase * 0.9 + ribbon * Math.PI;
+      const points: Phaser.Math.Vector2[] = [];
+      for (let step = 0; step <= 8; step += 1) {
+        const t = step / 8;
+        const distance = Phaser.Math.Linear(
+          tunnelLength * 0.98,
+          tuning.headRadius * 1.42,
+          t,
+        );
+        const width = Phaser.Math.Linear(
+          18 + strength * 10,
+          2.6 + strength * 1.1,
+          t,
+        ) * scale;
+        const orbit = ribbonPhase + t * Math.PI * (1.45 + strength * 0.42);
+        const offset = Math.sin(orbit) * width;
+        const drift = Math.cos(orbit * 0.7 + t * 3.4) * width * 0.16;
+        points.push(
+          new Phaser.Math.Vector2(
+            vacuum.mouthPosition.x +
+              forward.x * distance +
+              sideways.x * offset +
+              forward.x * drift,
+            vacuum.mouthPosition.y +
+              forward.y * distance +
+              sideways.y * offset +
+              forward.y * drift,
+          ),
+        );
+      }
+
+      this.strokeTaperedPath(
+        points,
+        outerWidth,
+        outerWidth * 0.18,
+        0xddfffb,
+        outerAlpha * 0.28,
+      );
+      this.strokeTaperedPath(
+        points,
+        outerWidth * 0.38,
+        outerWidth * 0.08,
+        0xb8fff6,
+        outerAlpha * 0.52,
+      );
+    }
+
+    for (let ring = 0; ring < ringCount; ring += 1) {
+      const travel = (phase * 0.12 + ring / ringCount) % 1;
+      const distance = Phaser.Math.Linear(
+        tunnelLength * 0.84,
+        tuning.headRadius * 1.9,
+        travel,
+      );
+      const center = {
+        x: vacuum.mouthPosition.x + forward.x * distance,
+        y: vacuum.mouthPosition.y + forward.y * distance,
       };
-      const control = {
-        x:
-          vacuum.mouthPosition.x +
-          Math.cos(midAngle) * ((farDistance + nearDistance) * 0.5) +
-          sideways.x * (lane * 4.1 + Math.sin(this.elapsed * 3.8 + index) * 1.2),
-        y:
-          vacuum.mouthPosition.y +
-          Math.sin(midAngle) * ((farDistance + nearDistance) * 0.5) +
-          sideways.y * (lane * 4.1 + Math.sin(this.elapsed * 3.8 + index) * 1.2),
-      };
-      const end = {
-        x:
-          vacuum.mouthPosition.x +
-          forward.x * nearDistance +
-          sideways.x * lane * 1.4,
-        y:
-          vacuum.mouthPosition.y +
-          forward.y * nearDistance +
-          sideways.y * lane * 1.4,
-      };
-      const points = this.sampleQuadraticPoints(start, control, end, 6);
-      this.strokeTaperedPath(points, outerWidth, outerWidth * 0.24, 0xdafef8, outerAlpha * 0.8);
-      this.strokeTaperedPath(points, innerWidth, innerWidth * 0.2, 0x8bfff0, outerAlpha);
+      const radiusX = Phaser.Math.Linear(
+        22 + strength * 10,
+        7 + strength * 2,
+        travel,
+      ) * scale;
+      const radiusY = radiusX * (0.28 + strength * 0.05);
+      const startAngle = phase * 0.72 + ring * 1.18;
+      const points = this.sampleRotatedEllipseArcPoints(
+        center,
+        radiusX,
+        radiusY,
+        vacuum.coneAngle,
+        startAngle,
+        startAngle + Math.PI * 1.08,
+        8,
+      );
+      const alpha = outerAlpha * Phaser.Math.Linear(0.44, 0.92, 1 - travel);
+      this.strokeTaperedPath(
+        points,
+        outerWidth * Phaser.Math.Linear(0.52, 0.24, travel),
+        outerWidth * 0.1,
+        0xd7fff8,
+        alpha * 0.36,
+      );
     }
   }
 
-  private sampleQuadraticPoints(
-    start: { x: number; y: number },
-    control: { x: number; y: number },
-    end: { x: number; y: number },
+  private sampleRotatedEllipseArcPoints(
+    center: { x: number; y: number },
+    radiusX: number,
+    radiusY: number,
+    rotation: number,
+    startAngle: number,
+    endAngle: number,
     steps: number,
   ): Phaser.Math.Vector2[] {
     const points: Phaser.Math.Vector2[] = [];
     for (let index = 0; index <= steps; index += 1) {
-      const t = index / steps;
-      const inverse = 1 - t;
+      const t = index / Math.max(1, steps);
+      const theta = Phaser.Math.Linear(startAngle, endAngle, t);
+      const localX = Math.cos(theta) * radiusX;
+      const localY = Math.sin(theta) * radiusY;
+      const rotated = rotateVector(localX, localY, rotation);
       points.push(
         new Phaser.Math.Vector2(
-          inverse * inverse * start.x + 2 * inverse * t * control.x + t * t * end.x,
-          inverse * inverse * start.y + 2 * inverse * t * control.y + t * t * end.y,
+          center.x + rotated.x,
+          center.y + rotated.y,
         ),
       );
     }

@@ -46,6 +46,7 @@ export interface InputSnapshot {
   pointerDown: boolean;
   moveX: number;
   moveY: number;
+  wheelDeltaY: number;
 }
 
 export interface MoveIntent {
@@ -88,8 +89,20 @@ export interface ExpansionEvent {
   newCells: HexCell[];
 }
 
+export interface WorldBounds {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+  centerX: number;
+  centerY: number;
+  width: number;
+  height: number;
+}
+
 export interface WorldRenderSnapshot {
   cells: HexCell[];
+  bounds: WorldBounds;
   stage: number;
   fillLevel: number;
   fillThreshold: number;

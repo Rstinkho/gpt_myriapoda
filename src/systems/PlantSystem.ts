@@ -30,6 +30,10 @@ export class PlantSystem {
     return this.gatherCue;
   }
 
+  clearGatherCue(): void {
+    this.gatherCue = null;
+  }
+
   update(
     myriapoda: Myriapoda,
     plants: Map<string, Plant>,

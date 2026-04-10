@@ -1,7 +1,14 @@
 import Phaser from 'phaser';
+import * as planck from 'planck';
 import { tuning } from '@/game/tuning';
 import { GameEvents } from '@/game/events';
-import type { CameraImpulsePayload, ExpansionEvent, HudSnapshot, UiMode } from '@/game/types';
+import type {
+  CameraImpulsePayload,
+  ExpansionEvent,
+  HudSnapshot,
+  MoveIntent,
+  UiMode,
+} from '@/game/types';
 import { Enemy } from '@/entities/enemies/Enemy';
 import { EnemyFactory } from '@/entities/enemies/EnemyFactory';
 import { Myriapoda } from '@/entities/myriapoda/Myriapoda';
@@ -32,11 +39,29 @@ import {
   showsWorldDebug,
 } from '@/ui/uiState';
 
+const stationaryMoveIntent: MoveIntent = {
+  aimAngle: 0,
+  thrust: 0,
+  strafeX: 0,
+  strafeY: 0,
+};
+
+interface TransitionPickupSnapshot {
+  x: number;
+  y: number;
+  resourceId: Pickup['resourceId'];
+  tier: Pickup['tier'];
+  scale: Pickup['scale'];
+}
+
 export class GameScene extends Phaser.Scene {
   private readonly eventBus = new Phaser.Events.EventEmitter();
   private accumulator = 0;
   private uiMode: UiMode = 'inspect';
   private renderDeltaSeconds = tuning.fixedStepSeconds;
+  private lastMoveIntent: MoveIntent = { ...stationaryMoveIntent };
+  private stageTransitionActive = false;
+  private stageTransitionPickups: TransitionPickupSnapshot[] = [];
 
   private collisions!: CollisionRegistry;
   private physicsWorld!: PhysicsWorld;
@@ -123,6 +148,14 @@ export class GameScene extends Phaser.Scene {
       this.accumulator -= tuning.fixedStepSeconds;
     }
 
+    const cameraInput = this.inputSystem.getSnapshot();
+    this.cameraSystem.update(
+      this.myriapoda.head.body,
+      this.lastMoveIntent,
+      this.worldSystem.world.bounds,
+      cameraInput.wheelDeltaY,
+      this.renderDeltaSeconds,
+    );
     this.render();
   }
 
@@ -130,12 +163,19 @@ export class GameScene extends Phaser.Scene {
     this.eventBus.off(GameEvents.cameraImpulse, this.handleCameraImpulse, this);
     this.eventBus.off(GameEvents.worldExpanded, this.handleWorldExpanded, this);
     this.debugToggleKey.off('down', this.cycleUiMode, this);
+    this.inputSystem.destroy();
     this.worldSystem.destroy();
   }
 
   private fixedUpdate(): void {
+    if (this.stageTransitionActive) {
+      this.fixedUpdateStageTransition();
+      return;
+    }
+
     const input = this.inputSystem.getSnapshot();
     const moveIntent = this.movementSystem.update(this.myriapoda.head.body, input);
+    this.lastMoveIntent = moveIntent;
     const headPlanckPosition = this.myriapoda.head.body.getPosition();
     this.aiSystem.update(this.enemies, {
       x: headPlanckPosition.x,
@@ -167,8 +207,23 @@ export class GameScene extends Phaser.Scene {
     this.myriapoda.syncBodyAttachments(0);
     const headPixelPosition = vec2ToPixels(this.myriapoda.head.body.getPosition());
     this.worldSystem.update(headPixelPosition);
+    this.eventBus.emit(GameEvents.hudChanged);
+  }
 
-    this.cameraSystem.update(this.myriapoda.head.body, moveIntent);
+  private fixedUpdateStageTransition(): void {
+    this.lastMoveIntent = stationaryMoveIntent;
+    this.freezePlayerBodies();
+    this.myriapoda.syncBodyAttachments(0);
+
+    const headPixelPosition = vec2ToPixels(this.myriapoda.head.body.getPosition());
+    this.worldSystem.update(headPixelPosition);
+    if (!this.worldSystem.isExpansionActive()) {
+      this.stageTransitionActive = false;
+      this.worldSystem.releasePlantOccupants();
+      this.worldSystem.setSpawningSuppressed(false);
+      this.respawnTransitionPickups();
+    }
+
     this.eventBus.emit(GameEvents.hudChanged);
   }
 
@@ -341,10 +396,92 @@ export class GameScene extends Phaser.Scene {
 
   private handleWorldExpanded(_payload: ExpansionEvent): void {
     this.cameraSystem.triggerExpansion();
+    this.stageTransitionActive = true;
+    this.lastMoveIntent = stationaryMoveIntent;
+    this.worldSystem.setSpawningSuppressed(true);
+    this.clearTransientWorldEntities();
+    this.plantSystem.clearGatherCue();
+    this.resetVacuumState();
+    this.freezePlayerBodies();
   }
 
   private cycleUiMode(): void {
     this.uiMode = cycleUiMode(this.uiMode);
     this.eventBus.emit(GameEvents.hudChanged);
+  }
+
+  private clearTransientWorldEntities(): void {
+    this.stageTransitionPickups = [];
+    for (const enemy of this.enemies.values()) {
+      enemy.destroy(this.physicsWorld.world);
+    }
+    this.enemies.clear();
+
+    for (const pickup of this.pickups.values()) {
+      const position = vec2ToPixels(pickup.body.getPosition());
+      this.stageTransitionPickups.push({
+        x: position.x,
+        y: position.y,
+        resourceId: pickup.resourceId,
+        tier: pickup.tier,
+        scale: pickup.scale,
+      });
+      pickup.destroy(this.physicsWorld.world);
+    }
+    this.pickups.clear();
+
+    for (const plant of this.plants.values()) {
+      plant.destroy(this.physicsWorld.world);
+    }
+    this.plants.clear();
+
+    this.worldSystem.releasePlantOccupants();
+    this.collisions.resetTransientState();
+  }
+
+  private respawnTransitionPickups(): void {
+    for (const pickup of this.stageTransitionPickups) {
+      const restoredPickup = this.pickupFactory.create(
+        pickup.x,
+        pickup.y,
+        pickup.tier,
+        {
+          resourceId: pickup.resourceId,
+          scale: pickup.scale,
+          alpha: 0.9,
+        },
+      );
+      this.pickups.set(restoredPickup.id, restoredPickup);
+    }
+    this.stageTransitionPickups = [];
+  }
+
+  private resetVacuumState(): void {
+    this.myriapoda.vacuum.nearbyPickupIds.clear();
+    this.myriapoda.vacuum.activePickupCount = 0;
+    this.myriapoda.vacuum.suctionAmount = 0;
+    this.myriapoda.vacuum.consumePulseTimer = 0;
+  }
+
+  private freezePlayerBodies(): void {
+    this.stopBodyMotion(this.myriapoda.head.body);
+
+    for (const limb of this.myriapoda.limbs.limbs) {
+      this.stopBodyMotion(limb.body.root);
+      for (const body of limb.body.bodies) {
+        this.stopBodyMotion(body);
+      }
+    }
+
+    this.stopBodyMotion(this.myriapoda.tail.tipBody);
+
+    for (const particle of this.myriapoda.stomach.particles) {
+      this.stopBodyMotion(particle.body);
+    }
+  }
+
+  private stopBodyMotion(body: planck.Body): void {
+    body.setLinearVelocity(planck.Vec2(0, 0));
+    body.setAngularVelocity(0);
   }
 }

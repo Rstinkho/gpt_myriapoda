@@ -42,6 +42,13 @@ export class CollisionRegistry {
     this.enemiesThreateningHead.delete(enemyId);
   }
 
+  resetTransientState(): void {
+    this.pickupsInVacuum.clear();
+    this.plantsInVacuum.clear();
+    this.enemiesThreateningHead.clear();
+    this.limbHits.length = 0;
+  }
+
   private handleBeginContact(contact: planck.Contact): void {
     const metaA = getMeta(contact.getFixtureA());
     const metaB = getMeta(contact.getFixtureB());

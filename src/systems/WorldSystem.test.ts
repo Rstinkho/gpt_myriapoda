@@ -41,6 +41,7 @@ class TestEventBus {
 const rendererState = {
   addFillPulse: vi.fn(),
   getSpawnableCells: vi.fn((cells) => cells),
+  isExpansionActive: vi.fn(() => false),
   startExpansion: vi.fn(),
   update: vi.fn(),
 };
@@ -58,6 +59,7 @@ vi.mock('@/rendering/WorldRenderer', () => ({
   WorldRenderer: vi.fn().mockImplementation(() => ({
     addFillPulse: rendererState.addFillPulse,
     getSpawnableCells: rendererState.getSpawnableCells,
+    isExpansionActive: rendererState.isExpansionActive,
     startExpansion: rendererState.startExpansion,
     update: rendererState.update,
   })),
@@ -127,6 +129,8 @@ describe('WorldSystem', () => {
     rendererState.addFillPulse.mockClear();
     rendererState.getSpawnableCells.mockClear();
     rendererState.getSpawnableCells.mockImplementation((cells) => cells);
+    rendererState.isExpansionActive.mockClear();
+    rendererState.isExpansionActive.mockReturnValue(false);
     rendererState.startExpansion.mockClear();
     rendererState.update.mockClear();
   });
@@ -221,6 +225,68 @@ describe('WorldSystem', () => {
 
     expect(plantFactory.create).not.toHaveBeenCalled();
     expect(plants.size).toBe(0);
+  });
+
+  it('suppresses plant and enemy spawning while stage-transition respawns are paused', () => {
+    const eventBus = new TestEventBus();
+    const pickupFactory = createPickupFactory();
+    const plantFactory = createPlantFactory();
+    const enemyFactory = createEnemyFactory();
+    const pickups = new Map();
+    const plants = new Map();
+    const enemies = new Map();
+    const worldSystem = new WorldSystem(
+      {} as never,
+      eventBus as never,
+      pickupFactory as never,
+      plantFactory as never,
+      enemyFactory as never,
+      pickups as never,
+      plants as never,
+      enemies as never,
+      {
+        chooseIndex: () => 0,
+        randomFloat: () => 0.5,
+      },
+    );
+
+    worldSystem.setSpawningSuppressed(true);
+    worldSystem.update({ x: 0, y: 0 });
+
+    expect(plantFactory.create).not.toHaveBeenCalled();
+    expect(enemyFactory.create).not.toHaveBeenCalled();
+  });
+
+  it('releases occupied plant slots so purified hexes can respawn after a transition', () => {
+    const eventBus = new TestEventBus();
+    const pickupFactory = createPickupFactory();
+    const plantFactory = createPlantFactory();
+    const enemyFactory = createEnemyFactory();
+    const pickups = new Map();
+    const plants = new Map();
+    const enemies = createEnemyMap(tuning.enemyCap);
+    const worldSystem = new WorldSystem(
+      {} as never,
+      eventBus as never,
+      pickupFactory as never,
+      plantFactory as never,
+      enemyFactory as never,
+      pickups as never,
+      plants as never,
+      enemies as never,
+      {
+        chooseIndex: () => 0,
+        randomFloat: () => 0.5,
+      },
+    );
+
+    worldSystem.update({ x: 0, y: 0 });
+    plants.clear();
+    worldSystem.releasePlantOccupants();
+    worldSystem.update({ x: 0, y: 0 });
+
+    expect(plantFactory.create).toHaveBeenCalledTimes(2);
+    expect(plants.size).toBe(1);
   });
 
   it('drops three biomass when a jellyfish dies on the default roll path', () => {

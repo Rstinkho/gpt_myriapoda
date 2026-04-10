@@ -33,6 +33,7 @@ export class WorldSystem {
   private pendingFillGain = 0;
   private readonly plantSlots = new Map<string, PlantSlot>();
   private readonly randomFloat: () => number;
+  private spawningSuppressed = false;
 
   constructor(
     scene: Phaser.Scene,
@@ -67,10 +68,13 @@ export class WorldSystem {
     }
 
     const visibleCells = this.renderer.getSpawnableCells(this.world.cells);
-    this.ensurePlants(visibleCells);
-    this.ensureEnemies(headPosition, visibleCells);
+    if (!this.spawningSuppressed) {
+      this.ensurePlants(visibleCells);
+      this.ensureEnemies(headPosition, visibleCells);
+    }
     this.renderer.update({
       cells: this.world.cells,
+      bounds: this.world.bounds,
       stage: this.world.stage,
       fillLevel: this.world.fillLevel,
       fillThreshold: this.world.fillThreshold,
@@ -83,6 +87,20 @@ export class WorldSystem {
   destroy(): void {
     this.eventBus.off(GameEvents.enemyKilled, this.handleEnemyKilled, this);
     this.eventBus.off(GameEvents.pickupAbsorbed, this.handlePickupAbsorbed, this);
+  }
+
+  setSpawningSuppressed(suppressed: boolean): void {
+    this.spawningSuppressed = suppressed;
+  }
+
+  isExpansionActive(): boolean {
+    return this.renderer.isExpansionActive();
+  }
+
+  releasePlantOccupants(): void {
+    for (const slot of this.plantSlots.values()) {
+      slot.plantId = null;
+    }
   }
 
   private ensurePlants(visibleCells: typeof this.world.cells): void {

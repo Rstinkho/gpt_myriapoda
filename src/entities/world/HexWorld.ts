@@ -1,4 +1,4 @@
-import type { ExpansionEvent, HexCell } from '@/game/types';
+import type { ExpansionEvent, HexCell, WorldBounds } from '@/game/types';
 import { tuning } from '@/game/tuning';
 import { HexGrid } from '@/entities/world/HexGrid';
 import {
@@ -6,11 +6,13 @@ import {
   canExpand,
   type ChooseIndex,
 } from '@/entities/world/WorldExpansion';
+import { computeWorldBounds } from '@/systems/cameraMath';
 import { randomInt } from '@/utils/random';
 
 export class HexWorld {
   readonly grid: HexGrid;
   private cellsInternal: HexCell[];
+  bounds: WorldBounds;
   stage: number;
   fillLevel = 0;
   fillThreshold: number;
@@ -23,6 +25,7 @@ export class HexWorld {
     this.cellsInternal = this.grid.createDisk(tuning.initialWorldRadius);
     this.chooseIndex = chooseIndex;
     this.assignRandomPurifiedCell(this.cellsInternal);
+    this.bounds = this.computeBounds();
   }
 
   get cells(): HexCell[] {
@@ -52,6 +55,7 @@ export class HexWorld {
     this.fillLevel = expanded.fillLevel;
     this.fillThreshold = expanded.fillThreshold;
     this.cellsInternal = expanded.cells;
+    this.bounds = this.computeBounds();
     return expanded.event;
   }
 
@@ -63,5 +67,9 @@ export class HexWorld {
     const index = this.chooseIndex(cells.length);
     const safeIndex = Math.max(0, Math.min(cells.length - 1, index));
     cells[safeIndex].type = 'purified';
+  }
+
+  private computeBounds(): WorldBounds {
+    return computeWorldBounds(this.cellsInternal, tuning.cameraFitPaddingPx);
   }
 }

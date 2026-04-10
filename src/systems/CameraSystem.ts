@@ -1,8 +1,12 @@
 import Phaser from 'phaser';
 import type * as planck from 'planck';
 import { tuning } from '@/game/tuning';
-import type { CameraImpulsePayload, MoveIntent } from '@/game/types';
+import type { CameraImpulsePayload, MoveIntent, WorldBounds } from '@/game/types';
 import { vec2ToPixels } from '@/physics/PhysicsUtils';
+import {
+  applyManualZoomBias,
+  computeFitZoom,
+} from '@/systems/cameraMath';
 
 export class CameraSystem {
   private elapsed = 0;
@@ -11,6 +15,7 @@ export class CameraSystem {
   private impulseZoom = 0;
   private impulseShake = 0;
   private expansionElapsed: number = tuning.expansionAnimationSeconds;
+  private manualZoomFactor = 1;
 
   constructor(private readonly scene: Phaser.Scene) {}
 
@@ -31,13 +36,20 @@ export class CameraSystem {
     this.impulseShake = Math.max(this.impulseShake, tuning.cameraExpansionShake * 0.45);
   }
 
-  update(headBody: planck.Body, intent: MoveIntent): void {
-    this.elapsed += tuning.fixedStepSeconds;
+  update(
+    headBody: planck.Body,
+    intent: MoveIntent,
+    worldBounds: WorldBounds,
+    wheelDeltaY: number,
+    deltaSeconds: number,
+  ): void {
+    const stepSeconds = Math.max(0.0001, deltaSeconds);
+    this.elapsed += stepSeconds;
     this.expansionElapsed = Math.min(
       tuning.expansionAnimationSeconds,
-      this.expansionElapsed + tuning.fixedStepSeconds,
+      this.expansionElapsed + stepSeconds,
     );
-    this.impulseTimer = Math.max(0, this.impulseTimer - tuning.fixedStepSeconds);
+    this.impulseTimer = Math.max(0, this.impulseTimer - stepSeconds);
     this.impulseZoom = Phaser.Math.Linear(this.impulseZoom, 0, tuning.cameraZoomDecay);
     this.impulseShake = Phaser.Math.Linear(this.impulseShake, 0, tuning.cameraShakeDecay);
 
@@ -48,8 +60,10 @@ export class CameraSystem {
       x: Math.cos(intent.aimAngle) * lookAheadScale,
       y: Math.sin(intent.aimAngle) * lookAheadScale,
     };
-    const targetX = headPosition.x + lookAhead.x;
-    const targetY = headPosition.y + lookAhead.y;
+    const playerTarget = {
+      x: headPosition.x + lookAhead.x,
+      y: headPosition.y + lookAhead.y,
+    };
 
     const expansionProgress =
       tuning.expansionAnimationSeconds <= 0
@@ -65,19 +79,38 @@ export class CameraSystem {
       y: Math.sin(this.elapsed * 39 + 0.8) * totalShake * 0.82,
     };
 
-    camera.scrollX +=
-      (((targetX - camera.width / 2) + shakeOffset.x) - camera.scrollX) * tuning.cameraLerp;
-    camera.scrollY +=
-      (((targetY - camera.height / 2) + shakeOffset.y) - camera.scrollY) * tuning.cameraLerp;
+    const fitZoom = computeFitZoom(camera.width, camera.height, worldBounds);
+    const baseZoom = Phaser.Math.Clamp(
+      Math.min(tuning.cameraPreferredZoom, fitZoom),
+      tuning.cameraAbsoluteMinZoom,
+      tuning.cameraAbsoluteMaxZoom,
+    );
+    const manualZoom = applyManualZoomBias(
+      baseZoom,
+      wheelDeltaY,
+      this.manualZoomFactor,
+      tuning.cameraWheelStep,
+      tuning.cameraWheelMinFactor,
+      tuning.cameraWheelMaxFactor,
+    );
+    this.manualZoomFactor = manualZoom.manualZoomFactor;
 
     const targetZoom = Phaser.Math.Clamp(
-      1 -
+      manualZoom.zoom -
         intent.thrust * tuning.cameraMotionZoomOut +
         this.impulseZoom +
         expansionEnvelope * tuning.cameraExpansionZoom,
-      tuning.cameraMinZoom,
-      tuning.cameraMaxZoom,
+      tuning.cameraAbsoluteMinZoom,
+      tuning.cameraAbsoluteMaxZoom,
     );
-    camera.setZoom(camera.zoom + (targetZoom - camera.zoom) * 0.16);
+    const smoothedZoom = camera.zoom + (targetZoom - camera.zoom) * 0.16;
+    const targetScroll = {
+      x: playerTarget.x - camera.width * 0.5 / smoothedZoom + shakeOffset.x,
+      y: playerTarget.y - camera.height * 0.5 / smoothedZoom + shakeOffset.y,
+    };
+
+    camera.scrollX += (targetScroll.x - camera.scrollX) * tuning.cameraLerp;
+    camera.scrollY += (targetScroll.y - camera.scrollY) * tuning.cameraLerp;
+    camera.setZoom(smoothedZoom);
   }
 }

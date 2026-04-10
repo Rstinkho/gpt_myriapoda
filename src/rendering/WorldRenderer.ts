@@ -57,6 +57,10 @@ export class WorldRenderer {
     };
   }
 
+  isExpansionActive(): boolean {
+    return this.pendingExpansion !== null;
+  }
+
   getSpawnableCells(cells: HexCell[]): HexCell[] {
     if (!this.pendingExpansion) {
       return cells;
@@ -133,17 +137,14 @@ export class WorldRenderer {
       return [];
     }
 
-    const centroid = cells.reduce(
-      (accumulator, cell) => ({
-        x: accumulator.x + cell.centerX / cells.length,
-        y: accumulator.y + cell.centerY / cells.length,
-      }),
-      { x: 0, y: 0 },
-    );
+    const worldCenter = {
+      x: snapshot.bounds.centerX,
+      y: snapshot.bounds.centerY,
+    };
 
     return cells.map((cell) => {
-      const directionX = cell.centerX - centroid.x;
-      const directionY = cell.centerY - centroid.y;
+      const directionX = cell.centerX - worldCenter.x;
+      const directionY = cell.centerY - worldCenter.y;
       const distance = Math.hypot(directionX, directionY);
       const normalX = distance > 0 ? directionX / distance : 0;
       const normalY = distance > 0 ? directionY / distance : 0;
@@ -151,7 +152,13 @@ export class WorldRenderer {
         animation.spacingBreath * snapshot.hexSize * tuning.worldStageSpacingBreath;
       const breathedX = cell.centerX + normalX * breathDistance;
       const breathedY = cell.centerY + normalY * breathDistance;
-      const rotated = this.rotateAround(breathedX, breathedY, centroid.x, centroid.y, animation.rotation);
+      const rotated = this.rotateAround(
+        breathedX,
+        breathedY,
+        worldCenter.x,
+        worldCenter.y,
+        animation.rotation,
+      );
       const isNew = this.pendingExpansion?.newCellKeys.has(createCoordKey(cell.coord)) ?? false;
       const playerInfluence = getPlayerInfluence(
         rotated.x,

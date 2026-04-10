@@ -3,12 +3,14 @@ import type { InputSnapshot } from '@/game/types';
 import { normalize } from '@/utils/math';
 
 export class InputSystem {
+  private readonly scene: Phaser.Scene;
   private readonly keys: {
     up: Phaser.Input.Keyboard.Key;
     down: Phaser.Input.Keyboard.Key;
     left: Phaser.Input.Keyboard.Key;
     right: Phaser.Input.Keyboard.Key;
   };
+  private wheelDeltaY = 0;
 
   private snapshot: InputSnapshot = {
     pointerWorldX: 0,
@@ -16,15 +18,18 @@ export class InputSystem {
     pointerDown: false,
     moveX: 0,
     moveY: 0,
+    wheelDeltaY: 0,
   };
 
   constructor(scene: Phaser.Scene) {
+    this.scene = scene;
     this.keys = scene.input.keyboard!.addKeys({
       up: Phaser.Input.Keyboard.KeyCodes.W,
       down: Phaser.Input.Keyboard.KeyCodes.S,
       left: Phaser.Input.Keyboard.KeyCodes.A,
       right: Phaser.Input.Keyboard.KeyCodes.D,
     }) as typeof this.keys;
+    scene.input.on('wheel', this.handleWheel, this);
   }
 
   update(): void {
@@ -38,10 +43,25 @@ export class InputSystem {
       pointerDown: false,
       moveX: normalized.x,
       moveY: normalized.y,
+      wheelDeltaY: this.wheelDeltaY,
     };
+    this.wheelDeltaY = 0;
   }
 
   getSnapshot(): InputSnapshot {
     return this.snapshot;
+  }
+
+  destroy(): void {
+    this.scene.input.off('wheel', this.handleWheel, this);
+  }
+
+  private handleWheel(
+    _pointer: Phaser.Input.Pointer,
+    _currentlyOver: Phaser.GameObjects.GameObject[],
+    _deltaX: number,
+    deltaY: number,
+  ): void {
+    this.wheelDeltaY += deltaY;
   }
 }
