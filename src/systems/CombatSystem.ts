@@ -121,6 +121,7 @@ export class CombatSystem {
         enemies.delete(enemy.id);
         this.eventBus.emit(GameEvents.enemyKilled, {
           enemyId: enemy.id,
+          enemyType: enemy.type,
           x: deathPosition.x,
           y: deathPosition.y,
         });

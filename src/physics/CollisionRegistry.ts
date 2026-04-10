@@ -15,6 +15,7 @@ function getMeta(fixture: planck.Fixture | null): FixtureMeta | null {
 
 export class CollisionRegistry {
   readonly pickupsInVacuum = new Set<string>();
+  readonly plantsInVacuum = new Set<string>();
   readonly enemiesThreateningHead = new Set<string>();
   private readonly limbHits: LimbHit[] = [];
 
@@ -69,6 +70,14 @@ export class CollisionRegistry {
         this.pickupsInVacuum.add(right.entityId);
       } else {
         this.pickupsInVacuum.delete(right.entityId);
+      }
+    }
+
+    if (left.tag === 'head-vacuum' && right.tag === 'plant-body') {
+      if (isBegin) {
+        this.plantsInVacuum.add(right.entityId);
+      } else {
+        this.plantsInVacuum.delete(right.entityId);
       }
     }
 

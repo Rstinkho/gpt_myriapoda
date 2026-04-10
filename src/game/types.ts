@@ -4,6 +4,13 @@ import type * as planck from 'planck';
 export type PickupTier = 'basic' | 'advanced' | 'rare';
 export type PickupResourceId = 'biomass' | 'tissue' | 'structuralCell';
 export type EnemyType = 'jellyfish';
+export type HexTypeId = 'dead' | 'restoring' | 'purified' | 'corrupted' | 'corridor';
+export type PlantType =
+  | 'fiberPlant'
+  | 'sparkBloom'
+  | 'boneMoss'
+  | 'contaminatedVariant';
+export type PlantState = 'grown' | 'chewing' | 'cooldown' | 'regrowing';
 export type UiMode = 'inspect' | 'panel' | 'minimal';
 
 export interface PickupPalette {
@@ -30,7 +37,8 @@ export type CollisionTag =
   | 'limb-segment'
   | 'limb-tip'
   | 'enemy-body'
-  | 'pickup-body';
+  | 'pickup-body'
+  | 'plant-body';
 
 export interface InputSnapshot {
   pointerWorldX: number;
@@ -72,6 +80,7 @@ export interface HexCell {
   centerX: number;
   centerY: number;
   unlocked: boolean;
+  type: HexTypeId;
 }
 
 export interface ExpansionEvent {

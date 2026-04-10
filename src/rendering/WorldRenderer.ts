@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { tuning } from '@/game/tuning';
+import { getHexTypeDefinition } from '@/game/hexTypes';
 import type { ExpansionEvent, HexCell, WorldRenderSnapshot } from '@/game/types';
 import { createCoordKey } from '@/entities/world/WorldExpansion';
 import {
@@ -189,6 +190,7 @@ export class WorldRenderer {
         Math.max(3, cellRadius - tuning.worldCellInnerInset),
       );
       const phase = this.getCellPhase(cell);
+      const hexType = getHexTypeDefinition(cell.type);
       const pulse = 0.5 + 0.5 * Math.sin(this.elapsed * tuning.worldCellPulseSpeed + phase);
       const shimmer =
         0.5 +
@@ -212,13 +214,13 @@ export class WorldRenderer {
       const shadowAlpha = (0.1 + cell.playerInfluence * 0.08) * cell.alpha;
       const strokeAlpha = (cellStrokeAlpha + cell.playerInfluence * 0.18) * cell.alpha;
 
-      this.graphics.fillStyle(0x051013, shadowAlpha);
+      this.graphics.fillStyle(hexType.shadowColor, shadowAlpha);
       this.graphics.fillPoints(shadowPoints, true);
 
-      this.graphics.fillStyle(0x0d1a1b, fillAlpha);
+      this.graphics.fillStyle(hexType.fillColor, fillAlpha);
       this.graphics.fillPoints(points, true);
 
-      this.graphics.fillStyle(0x103139, reactiveAlpha);
+      this.graphics.fillStyle(hexType.reactiveColor, reactiveAlpha);
       this.graphics.fillPoints(points, true);
 
       if (cell.playerInfluence > 0.01) {
@@ -226,16 +228,16 @@ export class WorldRenderer {
         this.graphics.fillPoints(shadowPoints, true);
       }
 
-      this.graphics.fillStyle(0x2a7683, innerGlowAlpha);
+      this.graphics.fillStyle(hexType.glowColor, innerGlowAlpha);
       this.graphics.fillPoints(innerPoints, true);
 
       this.graphics.lineStyle(cellLineWidth + 1.2, 0x061013, 0.54 * cell.alpha);
       this.graphics.strokePoints(points, true, true);
-      this.graphics.lineStyle(cellLineWidth, 0x8fece0, strokeAlpha);
+      this.graphics.lineStyle(cellLineWidth, hexType.strokeColor, strokeAlpha);
       this.graphics.strokePoints(points, true, true);
       this.graphics.lineStyle(
         Math.max(0.8, cellLineWidth * 0.42),
-        0xf0fffb,
+        hexType.contourColor,
         contourAlpha,
       );
       this.graphics.strokePoints(innerPoints, true, true);

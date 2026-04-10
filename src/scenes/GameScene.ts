@@ -5,6 +5,8 @@ import type { CameraImpulsePayload, ExpansionEvent, HudSnapshot, UiMode } from '
 import { Enemy } from '@/entities/enemies/Enemy';
 import { EnemyFactory } from '@/entities/enemies/EnemyFactory';
 import { Myriapoda } from '@/entities/myriapoda/Myriapoda';
+import type { Plant } from '@/entities/plants/Plant';
+import { PlantFactory } from '@/entities/plants/PlantFactory';
 import { Pickup } from '@/entities/pickups/Pickup';
 import { PickupFactory } from '@/entities/pickups/PickupFactory';
 import { CollisionRegistry } from '@/physics/CollisionRegistry';
@@ -19,6 +21,7 @@ import { FollowChainSystem } from '@/systems/FollowChainSystem';
 import { GrowthSystem } from '@/systems/GrowthSystem';
 import { InputSystem } from '@/systems/InputSystem';
 import { MovementSystem } from '@/systems/MovementSystem';
+import { PlantSystem } from '@/systems/PlantSystem';
 import { VacuumSystem } from '@/systems/VacuumSystem';
 import { WorldSystem } from '@/systems/WorldSystem';
 import {
@@ -40,20 +43,24 @@ export class GameScene extends Phaser.Scene {
   private myriapoda!: Myriapoda;
   private myriapodaRenderer!: MyriapodaRenderer;
   private pickups = new Map<string, Pickup>();
+  private plants = new Map<string, Plant>();
   private enemies = new Map<string, Enemy>();
   private pickupFactory!: PickupFactory;
+  private plantFactory!: PlantFactory;
   private enemyFactory!: EnemyFactory;
 
   private inputSystem!: InputSystem;
   private movementSystem!: MovementSystem;
   private followChainSystem!: FollowChainSystem;
   private vacuumSystem!: VacuumSystem;
+  private plantSystem!: PlantSystem;
   private digestSystem!: DigestSystem;
   private combatSystem!: CombatSystem;
   private aiSystem!: AISystem;
   private growthSystem!: GrowthSystem;
   private worldSystem!: WorldSystem;
   private cameraSystem!: CameraSystem;
+  private plantGatherGraphics!: Phaser.GameObjects.Graphics;
   private debugGraphics!: Phaser.GameObjects.Graphics;
   private debugToggleKey!: Phaser.Input.Keyboard.Key;
 
@@ -67,12 +74,14 @@ export class GameScene extends Phaser.Scene {
     this.myriapoda = new Myriapoda(this, this.physicsWorld.world, 0, 0);
     this.myriapodaRenderer = new MyriapodaRenderer(this);
     this.pickupFactory = new PickupFactory(this, this.physicsWorld.world);
+    this.plantFactory = new PlantFactory(this, this.physicsWorld.world);
     this.enemyFactory = new EnemyFactory(this, this.physicsWorld.world);
 
     this.inputSystem = new InputSystem(this);
     this.movementSystem = new MovementSystem();
     this.followChainSystem = new FollowChainSystem();
     this.vacuumSystem = new VacuumSystem(this.eventBus);
+    this.plantSystem = new PlantSystem(this.eventBus);
     this.digestSystem = new DigestSystem(this.eventBus);
     this.combatSystem = new CombatSystem(this.eventBus);
     this.aiSystem = new AISystem();
@@ -81,12 +90,15 @@ export class GameScene extends Phaser.Scene {
       this,
       this.eventBus,
       this.pickupFactory,
+      this.plantFactory,
       this.enemyFactory,
       this.pickups,
+      this.plants,
       this.enemies,
     );
     this.cameraSystem = new CameraSystem(this);
 
+    this.plantGatherGraphics = this.add.graphics().setDepth(4.8);
     this.debugGraphics = this.add.graphics().setDepth(100);
     this.debugToggleKey = this.input.keyboard!.addKey(tuning.debugToggleKey);
     this.debugToggleKey.on('down', this.cycleUiMode, this);
@@ -141,6 +153,13 @@ export class GameScene extends Phaser.Scene {
       this.physicsWorld.world,
       this.collisions,
     );
+    this.plantSystem.update(
+      this.myriapoda,
+      this.plants,
+      this.collisions.plantsInVacuum,
+      this.pickups,
+      this.pickupFactory,
+    );
     this.digestSystem.update(this.myriapoda, tuning.fixedStepSeconds);
     this.combatSystem.update(this.myriapoda, this.enemies, this.collisions, this.physicsWorld.world);
 
@@ -156,6 +175,7 @@ export class GameScene extends Phaser.Scene {
   private render(): void {
     this.syncActorsToPhysics();
     this.myriapodaRenderer.update(this.myriapoda);
+    this.renderPlantGatherCue();
     this.renderDebug();
   }
 
@@ -169,6 +189,10 @@ export class GameScene extends Phaser.Scene {
 
     for (const enemy of this.enemies.values()) {
       enemy.updateVisual(this.renderDeltaSeconds);
+    }
+
+    for (const plant of this.plants.values()) {
+      plant.updateVisual(this.renderDeltaSeconds);
     }
   }
 
@@ -247,6 +271,30 @@ export class GameScene extends Phaser.Scene {
       this.debugGraphics.closePath();
       this.debugGraphics.strokePath();
     }
+  }
+
+  private renderPlantGatherCue(): void {
+    this.plantGatherGraphics.clear();
+
+    const cue = this.plantSystem.getGatherCue();
+    if (!cue) {
+      return;
+    }
+
+    const pulse = 0.5 + 0.5 * Math.sin(this.time.now / 140);
+    const outerRadius = cue.radius + 2 + pulse * 4;
+    const innerRadius = Math.max(tuning.headRadius * 1.5, cue.radius * 0.5);
+
+    this.plantGatherGraphics.fillStyle(0x330106, 0.06 + cue.intensity * 0.06);
+    this.plantGatherGraphics.fillCircle(cue.x, cue.y, outerRadius);
+    this.plantGatherGraphics.fillStyle(0x78131c, 0.12 + cue.intensity * 0.1);
+    this.plantGatherGraphics.fillCircle(cue.x, cue.y, cue.radius);
+    this.plantGatherGraphics.fillStyle(0x1f0507, 0.16);
+    this.plantGatherGraphics.fillCircle(cue.x, cue.y, innerRadius);
+    this.plantGatherGraphics.lineStyle(2, 0xff6e7a, 0.26 + cue.intensity * 0.22);
+    this.plantGatherGraphics.strokeCircle(cue.x, cue.y, cue.radius);
+    this.plantGatherGraphics.lineStyle(1.1, 0xffb2b7, 0.38 + cue.intensity * 0.24);
+    this.plantGatherGraphics.strokeCircle(cue.x, cue.y, outerRadius);
   }
 
   private getHudSnapshot(): HudSnapshot {

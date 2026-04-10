@@ -1,30 +1,52 @@
 import Phaser from 'phaser';
 import { tuning } from '@/game/tuning';
 import { GameEvents } from '@/game/events';
-import { Enemy } from '@/entities/enemies/Enemy';
-import { EnemyFactory } from '@/entities/enemies/EnemyFactory';
-import { Pickup } from '@/entities/pickups/Pickup';
-import { PickupFactory } from '@/entities/pickups/PickupFactory';
-import { pickupTiers } from '@/entities/pickups/PickupRegistry';
+import type { Enemy } from '@/entities/enemies/Enemy';
+import type { EnemyFactory } from '@/entities/enemies/EnemyFactory';
+import { resolveEnemyDrops } from '@/entities/enemies/EnemyDropRegistry';
+import type { Plant } from '@/entities/plants/Plant';
+import type { PlantFactory } from '@/entities/plants/PlantFactory';
+import { shouldOccupyPurifiedHex } from '@/entities/plants/plantLifecycle';
+import type { Pickup } from '@/entities/pickups/Pickup';
+import type { PickupFactory } from '@/entities/pickups/PickupFactory';
+import { getPickupTierFromResource } from '@/entities/pickups/PickupRegistry';
 import { HexWorld } from '@/entities/world/HexWorld';
 import { SpawnSystem, enforceEnemyCap } from '@/entities/world/SpawnSystem';
+import { createCoordKey, type ChooseIndex } from '@/entities/world/WorldExpansion';
 import { WorldRenderer } from '@/rendering/WorldRenderer';
-import { randomBetween, randomItem } from '@/utils/random';
+import { randomBetween } from '@/utils/random';
+
+interface PlantSlot {
+  occupied: boolean;
+  plantId: string | null;
+}
+
+interface WorldSystemOptions {
+  randomFloat?: () => number;
+  chooseIndex?: ChooseIndex;
+}
 
 export class WorldSystem {
-  readonly world = new HexWorld();
+  readonly world: HexWorld;
   readonly spawner = new SpawnSystem(tuning.enemySpawnRadiusPadding);
   readonly renderer: WorldRenderer;
   private pendingFillGain = 0;
+  private readonly plantSlots = new Map<string, PlantSlot>();
+  private readonly randomFloat: () => number;
 
   constructor(
     scene: Phaser.Scene,
     private readonly eventBus: Phaser.Events.EventEmitter,
     private readonly pickupFactory: PickupFactory,
+    private readonly plantFactory: PlantFactory,
     private readonly enemyFactory: EnemyFactory,
     private readonly pickups: Map<string, Pickup>,
+    private readonly plants: Map<string, Plant>,
     private readonly enemies: Map<string, Enemy>,
+    options: WorldSystemOptions = {},
   ) {
+    this.randomFloat = options.randomFloat ?? Math.random;
+    this.world = new HexWorld(options.chooseIndex);
     this.renderer = new WorldRenderer(scene);
     this.eventBus.on(GameEvents.enemyKilled, this.handleEnemyKilled, this);
     this.eventBus.on(GameEvents.pickupAbsorbed, this.handlePickupAbsorbed, this);
@@ -44,9 +66,9 @@ export class WorldSystem {
       }
     }
 
-    const spawnableCells = this.renderer.getSpawnableCells(this.world.cells);
-    this.ensurePickups(headPosition, spawnableCells);
-    this.ensureEnemies(headPosition, spawnableCells);
+    const visibleCells = this.renderer.getSpawnableCells(this.world.cells);
+    this.ensurePlants(visibleCells);
+    this.ensureEnemies(headPosition, visibleCells);
     this.renderer.update({
       cells: this.world.cells,
       stage: this.world.stage,
@@ -63,11 +85,36 @@ export class WorldSystem {
     this.eventBus.off(GameEvents.pickupAbsorbed, this.handlePickupAbsorbed, this);
   }
 
-  private ensurePickups(headPosition: { x: number; y: number }, cells: typeof this.world.cells): void {
-    while (this.pickups.size < tuning.targetPickupCount) {
-      const spawn = this.spawner.pickSpawn(cells, headPosition);
-      const pickup = this.pickupFactory.create(spawn.x, spawn.y);
-      this.pickups.set(pickup.id, pickup);
+  private ensurePlants(visibleCells: typeof this.world.cells): void {
+    const visibleCellKeys = new Set(
+      visibleCells.map((cell) => createCoordKey(cell.coord)),
+    );
+
+    for (const cell of this.world.cells) {
+      if (cell.type !== 'purified') {
+        continue;
+      }
+
+      const cellKey = createCoordKey(cell.coord);
+      let slot = this.plantSlots.get(cellKey);
+      if (!slot) {
+        slot = {
+          occupied: shouldOccupyPurifiedHex(
+            this.randomFloat(),
+            tuning.purifiedPlantOccupancyChance,
+          ),
+          plantId: null,
+        };
+        this.plantSlots.set(cellKey, slot);
+      }
+
+      if (!slot.occupied || slot.plantId || !visibleCellKeys.has(cellKey)) {
+        continue;
+      }
+
+      const plant = this.plantFactory.create(cell, 'fiberPlant');
+      this.plants.set(plant.id, plant);
+      slot.plantId = plant.id;
     }
   }
 
@@ -90,16 +137,17 @@ export class WorldSystem {
     }
   }
 
-  private handleEnemyKilled(payload: { x: number; y: number }): void {
-    for (let index = 0; index < tuning.enemyShardCount; index += 1) {
+  private handleEnemyKilled(payload: { enemyType: Enemy['type']; x: number; y: number }): void {
+    const drops = resolveEnemyDrops(payload.enemyType, this.randomFloat());
+    for (const resourceId of drops) {
       const angle = randomBetween(0, Math.PI * 2);
       const distance = randomBetween(4, 10);
-      const tier = randomItem(pickupTiers);
       const pickup = this.pickupFactory.create(
         payload.x + Math.cos(angle) * distance,
         payload.y + Math.sin(angle) * distance,
-        tier,
+        getPickupTierFromResource(resourceId),
         {
+          resourceId,
           scale: tuning.enemyShardScale,
           alpha: 0.85,
           impulse: {
