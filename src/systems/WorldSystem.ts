@@ -4,6 +4,7 @@ import { GameEvents } from '@/game/events';
 import type { Enemy } from '@/entities/enemies/Enemy';
 import type { EnemyFactory } from '@/entities/enemies/EnemyFactory';
 import { resolveEnemyDrops } from '@/entities/enemies/EnemyDropRegistry';
+import { resolveEnemyType } from '@/entities/enemies/EnemyRegistry';
 import type { Plant } from '@/entities/plants/Plant';
 import type { PlantFactory } from '@/entities/plants/PlantFactory';
 import { shouldOccupyPurifiedHex } from '@/entities/plants/plantLifecycle';
@@ -151,7 +152,8 @@ export class WorldSystem {
 
     while (remaining > 0) {
       const spawn = this.spawner.pickSpawn(cells, headPosition);
-      const enemy = this.enemyFactory.create(spawn.x, spawn.y);
+      const enemyType = resolveEnemyType(this.world.stage, this.randomFloat());
+      const enemy = this.enemyFactory.create(spawn.x, spawn.y, enemyType);
       this.enemies.set(enemy.id, enemy);
       remaining -= 1;
     }

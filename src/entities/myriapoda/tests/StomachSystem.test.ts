@@ -14,6 +14,21 @@ describe('StomachSystem parasites', () => {
     expect(stomach.biomass).toBe(2);
   });
 
+  it('exposes stored-particle helpers for external stomach drainers', () => {
+    const stomach = new StomachSystem();
+
+    expect(stomach.hasStoredParticles()).toBe(false);
+    expect(stomach.consumeOldestStoredParticle()).toBe(false);
+
+    stomach.add('biomass');
+    stomach.add('tissue');
+
+    expect(stomach.hasStoredParticles()).toBe(true);
+    expect(stomach.consumeOldestStoredParticle()).toBe(true);
+    expect(stomach.particles).toHaveLength(1);
+    expect(stomach.biomass).toBe(3);
+  });
+
   it('consumes the oldest nutrient pickup every two seconds for twenty seconds', () => {
     const stomach = new StomachSystem();
     stomach.add('biomass');
@@ -68,5 +83,18 @@ describe('StomachSystem parasites', () => {
     expect(stomach.parasites).toHaveLength(0);
     expect(stomach.biomass).toBe(0);
     expect(stomach.getParasiteAlertProgress()).toBe(0);
+  });
+
+  it('drains stored particles on the leech cadence without touching digested totals', () => {
+    const stomach = new StomachSystem();
+    stomach.add('biomass');
+    stomach.add('tissue');
+
+    expect(stomach.consumeOldestStoredParticle()).toBe(true);
+
+    expect(stomach.particles).toHaveLength(1);
+    expect(stomach.biomass).toBe(3);
+    expect(stomach.digestedTotal).toBe(0);
+    expect(stomach.consumedPickupTotal).toBe(0);
   });
 });

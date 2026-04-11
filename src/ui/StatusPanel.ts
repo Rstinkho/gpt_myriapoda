@@ -33,6 +33,7 @@ interface PanelMetrics {
   height: number;
   meterX: number;
   meterY: number;
+  dashMeterY: number;
   meterWidth: number;
   meterHeight: number;
   chamberX: number;
@@ -63,6 +64,7 @@ export class StatusPanel {
   private readonly stageLabel: Phaser.GameObjects.Text;
   private readonly stageValue: Phaser.GameObjects.Text;
   private readonly limbLabel: Phaser.GameObjects.Text;
+  private readonly dashLabel: Phaser.GameObjects.Text;
   private readonly readyBadge: Phaser.GameObjects.Text;
   /** Single line: "SEGMENT COUNT  N" — one Text so label + number cannot split across baselines. */
   private readonly segmentLine: Phaser.GameObjects.Text;
@@ -142,6 +144,14 @@ export class StatusPanel {
     });
     this.limbLabel.setScrollFactor(0).setDepth(1002);
 
+    this.dashLabel = scene.add.text(0, 0, 'DASH CD', {
+      fontFamily: 'Trebuchet MS',
+      fontSize: '15px',
+      color: accentColor,
+      letterSpacing: 1.5,
+    });
+    this.dashLabel.setScrollFactor(0).setDepth(1002);
+
     this.readyBadge = scene.add.text(0, 0, 'READY', {
       fontFamily: 'Trebuchet MS',
       fontSize: '13px',
@@ -209,7 +219,7 @@ export class StatusPanel {
     const x = this.scene.scale.width - width - tuning.uiPanelMarginRight;
     const y = tuning.uiPanelMarginTop;
     const meterWidth = width - 48;
-    const chamberY = y + 214;
+    const chamberY = y + 258;
     const pickupRowY = y + height - 48;
     const chamberHeight = Math.max(150, pickupRowY - chamberY - 34);
     const chamberX = x + 24;
@@ -222,6 +232,7 @@ export class StatusPanel {
       height,
       meterX: x + 24,
       meterY: y + 152,
+      dashMeterY: y + 200,
       meterWidth,
       meterHeight: 16,
       chamberX,
@@ -238,8 +249,9 @@ export class StatusPanel {
     this.stageLabel.setPosition(x + 24, y + 24);
     this.stageValue.setPosition(x + 24, y + 44);
     this.limbLabel.setPosition(x + 24, y + 126);
+    this.dashLabel.setPosition(x + 24, y + 174);
     this.readyBadge.setPosition(x + width - 24, y + 122);
-    this.segmentLine.setPosition(x + 24, y + 198);
+    this.segmentLine.setPosition(x + 24, y + 244);
 
     const counterEntries = getPickupCountEntries({
       basic: 0,
@@ -291,45 +303,26 @@ export class StatusPanel {
     this.clearVisuals();
     this.drawPanelBackground(metrics, snapshot.parasiteAlertProgress);
 
-    this.meterGraphics.fillStyle(0x0b1518, 0.46);
-    this.meterGraphics.fillRoundedRect(
+    this.drawCooldownMeter(
       metrics.meterX,
       metrics.meterY,
       metrics.meterWidth,
       metrics.meterHeight,
-      metrics.meterHeight * 0.5,
+      snapshot.limbCooldownProgress,
+      tuning.uiPanelAccentColor,
+      snapshot.limbReady ? 0xf4e87c : 0xeafcff,
+      snapshot.limbReady,
     );
-    this.meterGraphics.lineStyle(1.2, tuning.uiPanelAccentColor, 0.2);
-    this.meterGraphics.strokeRoundedRect(
+    this.drawCooldownMeter(
       metrics.meterX,
-      metrics.meterY,
+      metrics.dashMeterY,
       metrics.meterWidth,
       metrics.meterHeight,
-      metrics.meterHeight * 0.5,
+      snapshot.dashCooldownProgress,
+      0xffbf86,
+      snapshot.dashReady ? 0xfff4cf : 0xffe3c8,
+      snapshot.dashReady,
     );
-
-    const fillWidth = metrics.meterWidth * snapshot.limbCooldownProgress;
-    if (fillWidth > 0) {
-      this.meterGraphics.fillStyle(tuning.uiPanelAccentColor, 0.44);
-      this.meterGraphics.fillRoundedRect(
-        metrics.meterX,
-        metrics.meterY,
-        fillWidth,
-        metrics.meterHeight,
-        metrics.meterHeight * 0.5,
-      );
-      this.meterGraphics.fillStyle(
-        snapshot.limbReady ? 0xf4e87c : 0xeafcff,
-        snapshot.limbReady ? 0.95 : 0.62,
-      );
-      this.meterGraphics.fillRoundedRect(
-        metrics.meterX,
-        metrics.meterY + 2,
-        Math.max(4, fillWidth - 4),
-        Math.max(4, metrics.meterHeight - 4),
-        (metrics.meterHeight - 4) * 0.5,
-      );
-    }
 
     this.animateCounterIcons(elapsedSeconds);
     this.drawStomachChamber(metrics, snapshot.parasiteAlertProgress);
@@ -614,6 +607,7 @@ export class StatusPanel {
     this.stageLabel.destroy();
     this.stageValue.destroy();
     this.limbLabel.destroy();
+    this.dashLabel.destroy();
     this.readyBadge.destroy();
     this.segmentLine.destroy();
     for (const tier of nutrientPickupTiers) {
@@ -636,6 +630,7 @@ export class StatusPanel {
     this.stageLabel.setVisible(visible);
     this.stageValue.setVisible(visible);
     this.limbLabel.setVisible(visible);
+    this.dashLabel.setVisible(visible);
     this.readyBadge.setVisible(visible && (this.snapshot?.limbReady ?? false));
     this.segmentLine.setVisible(visible);
     for (const tier of nutrientPickupTiers) {
@@ -727,6 +722,38 @@ export class StatusPanel {
     this.chamberGlowGraphics.fillCircle(x, y, radius * 1.85);
     this.chamberGlowGraphics.fillStyle(palette.highlight, alpha * 0.5);
     this.chamberGlowGraphics.fillCircle(x, y, radius * 1.08);
+  }
+
+  private drawCooldownMeter(
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    progress: number,
+    baseColor: number,
+    fillColor: number,
+    isReady: boolean,
+  ): void {
+    this.meterGraphics.fillStyle(0x0b1518, 0.46);
+    this.meterGraphics.fillRoundedRect(x, y, width, height, height * 0.5);
+    this.meterGraphics.lineStyle(1.2, baseColor, 0.2);
+    this.meterGraphics.strokeRoundedRect(x, y, width, height, height * 0.5);
+
+    const fillWidth = width * progress;
+    if (fillWidth <= 0) {
+      return;
+    }
+
+    this.meterGraphics.fillStyle(baseColor, 0.44);
+    this.meterGraphics.fillRoundedRect(x, y, fillWidth, height, height * 0.5);
+    this.meterGraphics.fillStyle(fillColor, isReady ? 0.95 : 0.62);
+    this.meterGraphics.fillRoundedRect(
+      x,
+      y + 2,
+      Math.max(4, fillWidth - 4),
+      Math.max(4, height - 4),
+      (height - 4) * 0.5,
+    );
   }
 
   private createChamberGradientConfig(): Phaser.Types.GameObjects.Gradient.GradientQuadConfig {

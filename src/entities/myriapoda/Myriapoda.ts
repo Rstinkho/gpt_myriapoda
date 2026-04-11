@@ -6,6 +6,7 @@ import { LimbController } from '@/entities/myriapoda/LimbController';
 import { StomachSystem } from '@/entities/myriapoda/StomachSystem';
 import { TailController } from '@/entities/myriapoda/TailController';
 import { VacuumSystem } from '@/entities/myriapoda/VacuumSystem';
+import type { DashStateSnapshot } from '@/game/types';
 
 export class Myriapoda {
   readonly head: Head;
@@ -25,9 +26,9 @@ export class Myriapoda {
     this.syncBodyAttachments(0);
   }
 
-  syncBodyAttachments(deltaSeconds: number): void {
+  syncBodyAttachments(deltaSeconds: number, dashState?: DashStateSnapshot): void {
     const stomachAnchor = this.body.getStomachAnchor();
     this.stomach.setAnchor(stomachAnchor.x, stomachAnchor.y);
-    this.tail.update(deltaSeconds, this.body);
+    this.tail.update(deltaSeconds, this.body, dashState);
   }
 }

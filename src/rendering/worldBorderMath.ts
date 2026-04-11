@@ -10,7 +10,8 @@ export interface BorderEdge {
   end: BorderPoint;
 }
 
-const boundaryDirections: HexCoord[] = [
+/** Axial directions to neighbors (order matches `createRegularHexPoints` side indices). */
+export const HEX_NEIGHBOR_DIRECTIONS: HexCoord[] = [
   { q: 1, r: 0 },
   { q: 0, r: 1 },
   { q: -1, r: 1 },
@@ -107,8 +108,8 @@ export function createExposedHexEdges(cells: HexCell[], cellRadius: number): Bor
 
   for (const cell of cells) {
     const points = createRegularHexPoints(cell.centerX, cell.centerY, cellRadius);
-    for (let side = 0; side < boundaryDirections.length; side += 1) {
-      const direction = boundaryDirections[side];
+    for (let side = 0; side < HEX_NEIGHBOR_DIRECTIONS.length; side += 1) {
+      const direction = HEX_NEIGHBOR_DIRECTIONS[side];
       const neighborKey = createCoordKey({
         q: cell.coord.q + direction.q,
         r: cell.coord.r + direction.r,

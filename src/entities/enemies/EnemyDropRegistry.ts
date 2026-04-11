@@ -9,5 +9,9 @@ export function resolveEnemyDrops(
       return roll < 0.1
         ? ['biomass', 'biomass', 'tissue']
         : ['biomass', 'biomass', 'biomass'];
+    case 'leech':
+      return roll < 0.2 ? ['biomass'] : [];
   }
+
+  throw new Error(`Unsupported enemy drop type: ${String(enemyType)}`);
 }

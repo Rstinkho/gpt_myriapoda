@@ -6,12 +6,20 @@ import { pixelsToMeters, vec2FromPixels } from '@/physics/PhysicsUtils';
 export class EnemyBody {
   readonly body: planck.Body;
 
-  constructor(world: planck.World, id: string, x: number, y: number, radius: number) {
+  constructor(
+    world: planck.World,
+    id: string,
+    x: number,
+    y: number,
+    radius: number,
+    linearDamping: number = tuning.jellyfishLinearDamping,
+    angularDamping: number = tuning.jellyfishAngularDamping,
+  ) {
     this.body = world.createBody({
       type: 'dynamic',
       position: vec2FromPixels(x, y),
-      linearDamping: tuning.enemyLinearDamping,
-      angularDamping: tuning.enemyAngularDamping,
+      linearDamping,
+      angularDamping,
     });
 
     const fixture = this.body.createFixture({

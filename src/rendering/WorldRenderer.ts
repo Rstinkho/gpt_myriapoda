@@ -3,12 +3,14 @@ import { tuning } from '@/game/tuning';
 import { getHexTypeDefinition } from '@/game/hexTypes';
 import type { ExpansionEvent, HexCell, WorldRenderSnapshot } from '@/game/types';
 import { createCoordKey } from '@/entities/world/WorldExpansion';
+import { GraphicsMaskController } from '@/phaser/GraphicsMaskController';
 import {
   type BorderPoint,
   createExposedHexEdges,
   createProgressBorderEdges,
   createProgressBorderSlice,
   createRegularHexPoints,
+  HEX_NEIGHBOR_DIRECTIONS,
 } from '@/rendering/worldBorderMath';
 import {
   advanceDisplayFillProgress,
@@ -34,8 +36,10 @@ interface PendingExpansion {
 }
 
 const worldRevealGlowDepth = 0.78;
+const worldBorderShadowDepth = 0.92;
 const worldBaseDepth = 1;
-const worldBorderDepth = 1.24;
+/** Hex outlines sit above tile fills but below player, plants, pickups, and enemies (see GameScene ~4.8+, Pickup 6, plants 7, jellyfish 8, head 12). */
+const worldCellStrokeDepth = 4.5;
 const worldRevealGlowRadiusPadding = 18;
 const worldRevealGlowAlpha = 0.14;
 const worldRevealGlowColor = 0x88edff;
@@ -43,7 +47,9 @@ const worldRevealGlowColor = 0x88edff;
 export class WorldRenderer {
   private readonly revealGlowGraphics: Phaser.GameObjects.Graphics;
   private readonly cellGraphics: Phaser.GameObjects.Graphics;
-  private readonly borderGraphics: Phaser.GameObjects.Graphics;
+  private readonly cellStrokeGraphics: Phaser.GameObjects.Graphics;
+  private readonly borderShadowGraphics: Phaser.GameObjects.Graphics;
+  private readonly worldBorderMask: GraphicsMaskController;
   private fillPulse = 0;
   private displayFillProgress = 0;
   private pendingExpansion: PendingExpansion | null = null;
@@ -57,16 +63,29 @@ export class WorldRenderer {
     this.cellGraphics = scene.add.graphics();
     this.cellGraphics.setDepth(worldBaseDepth);
 
-    this.borderGraphics = scene.add.graphics();
-    this.borderGraphics.setDepth(worldBorderDepth);
+    this.cellStrokeGraphics = scene.add.graphics();
+    this.cellStrokeGraphics.setDepth(worldCellStrokeDepth);
+    this.cellStrokeGraphics.setScrollFactor(1);
 
-    Phaser.Actions.AddEffectBloom(this.borderGraphics, {
+    this.borderShadowGraphics = scene.add.graphics();
+    this.borderShadowGraphics.setDepth(worldBorderShadowDepth);
+    this.borderShadowGraphics.setScrollFactor(1);
+    this.borderShadowGraphics.enableFilters();
+
+    Phaser.Actions.AddEffectBloom(this.borderShadowGraphics, {
       threshold: tuning.worldBorderBloomThreshold,
       blurRadius: tuning.worldBorderBloomRadius,
       blurSteps: tuning.worldBorderBloomSteps,
       blendAmount: tuning.worldBorderBloomAmount,
       useInternal: true,
     });
+
+    this.worldBorderMask = new GraphicsMaskController(scene, {
+      viewCamera: scene.cameras.main,
+      viewTransform: 'world',
+      invert: true,
+    });
+    this.worldBorderMask.attach(this.borderShadowGraphics);
   }
 
   addFillPulse(amount: number): void {
@@ -88,9 +107,11 @@ export class WorldRenderer {
   }
 
   destroy(): void {
+    this.worldBorderMask.destroy();
     this.revealGlowGraphics.destroy();
     this.cellGraphics.destroy();
-    this.borderGraphics.destroy();
+    this.cellStrokeGraphics.destroy();
+    this.borderShadowGraphics.destroy();
   }
 
   getSpawnableCells(cells: HexCell[]): HexCell[] {
@@ -110,7 +131,9 @@ export class WorldRenderer {
     this.elapsed += tuning.fixedStepSeconds;
     this.fillPulse = Math.max(0, this.fillPulse - tuning.fixedStepSeconds * tuning.worldFillPulseDecay);
     this.cellGraphics.clear();
-    this.borderGraphics.clear();
+    this.cellStrokeGraphics.clear();
+    this.borderShadowGraphics.clear();
+    this.worldBorderMask.clear();
     this.revealGlowGraphics.clear();
 
     const actualProgress = Math.max(0, Math.min(1, snapshot.fillLevel / Math.max(1, snapshot.fillThreshold)));
@@ -150,8 +173,15 @@ export class WorldRenderer {
     const suppressHeavyFx = this.pendingExpansion !== null;
 
     this.renderRevealGlow(revealCells, snapshot.hexSize, suppressHeavyFx);
-    this.renderCells(this.cellGraphics, visibleRenderCells, snapshot.hexSize, animation.revealProgress);
-    this.renderBorder(silhouetteCells, snapshot.hexSize);
+    this.renderCells(
+      this.cellGraphics,
+      this.cellStrokeGraphics,
+      visibleRenderCells,
+      snapshot.hexSize,
+      animation.revealProgress,
+    );
+    this.drawWorldSilhouetteMask(silhouetteCells, snapshot.hexSize);
+    this.renderBorder(this.borderShadowGraphics, silhouetteCells, snapshot.hexSize);
 
     if (this.pendingExpansion && this.getExpansionProgress() >= 1) {
       this.pendingExpansion = null;
@@ -222,12 +252,14 @@ export class WorldRenderer {
   }
 
   private renderCells(
-    graphics: Phaser.GameObjects.Graphics,
+    fillGraphics: Phaser.GameObjects.Graphics,
+    strokeGraphics: Phaser.GameObjects.Graphics,
     renderCells: RenderCell[],
     hexSize: number,
     revealProgress: number,
   ): void {
-    const cellStrokeAlpha = 0.34 + this.fillPulse * 0.18 + revealProgress * 0.08;
+    const cellStrokeAlpha =
+      tuning.worldCellStrokeBaseAlpha + this.fillPulse * 0.2 + revealProgress * 0.1;
     const cellLineWidth = 2.2 + this.fillPulse * 0.9 + revealProgress * 0.95;
 
     for (const cell of renderCells) {
@@ -244,27 +276,77 @@ export class WorldRenderer {
           this.fillPulse * 0.08 +
           cell.playerInfluence * 0.08) *
         cell.alpha;
-      const strokeAlpha = (cellStrokeAlpha + cell.playerInfluence * 0.18) * cell.alpha;
 
-      graphics.fillStyle(hexType.fillColor, fillAlpha);
-      graphics.fillPoints(points as Phaser.Math.Vector2[], true);
+      fillGraphics.fillStyle(hexType.fillColor, fillAlpha);
+      fillGraphics.fillPoints(points as Phaser.Math.Vector2[], true);
 
-      graphics.fillStyle(hexType.reactiveColor, reactiveAlpha);
-      graphics.fillPoints(points as Phaser.Math.Vector2[], true);
+      fillGraphics.fillStyle(hexType.reactiveColor, reactiveAlpha);
+      fillGraphics.fillPoints(points as Phaser.Math.Vector2[], true);
 
       if (cell.playerInfluence > 0.01) {
-        graphics.fillStyle(0x66dbff, cell.playerInfluence * 0.085 * cell.alpha);
-        graphics.fillPoints(points as Phaser.Math.Vector2[], true);
+        fillGraphics.fillStyle(0x66dbff, cell.playerInfluence * 0.085 * cell.alpha);
+        fillGraphics.fillPoints(points as Phaser.Math.Vector2[], true);
       }
+    }
 
-      graphics.lineStyle(cellLineWidth + 1.2, 0x061013, 0.54 * cell.alpha);
-      graphics.strokePoints(points as Phaser.Math.Vector2[], true, true);
-      graphics.lineStyle(cellLineWidth, hexType.strokeColor, strokeAlpha);
-      graphics.strokePoints(points as Phaser.Math.Vector2[], true, true);
+    this.strokeHexCellOutlines(strokeGraphics, renderCells, hexSize, cellLineWidth, cellStrokeAlpha);
+  }
+
+  private drawWorldSilhouetteMask(cells: HexCell[], hexSize: number): void {
+    if (cells.length === 0) {
+      return;
+    }
+
+    const borderRadius = Math.max(4, hexSize);
+    this.worldBorderMask.drawMask((g) => {
+      for (const cell of cells) {
+        const pts = createRegularHexPoints(cell.centerX, cell.centerY, borderRadius);
+        g.fillPoints(pts as Phaser.Math.Vector2[], true);
+      }
+    });
+  }
+
+  /**
+   * Each hex draws all six sides with its own inset radius so shared interior edges are stroked twice
+   * (double line between neighbors). Rendered in `cellStrokeGraphics` above entities.
+   */
+  private strokeHexCellOutlines(
+    graphics: Phaser.GameObjects.Graphics,
+    renderCells: RenderCell[],
+    hexSize: number,
+    cellLineWidth: number,
+    cellStrokeAlpha: number,
+  ): void {
+    for (const cell of renderCells) {
+      const r = Math.max(4, (hexSize - tuning.worldCellInset) * cell.scale);
+      const points = createRegularHexPoints(cell.centerX, cell.centerY, r);
+      const lineAlpha = cell.alpha;
+      const strokeAlpha = (cellStrokeAlpha + cell.playerInfluence * 0.18) * lineAlpha;
+      const hexType = getHexTypeDefinition(cell.type);
+
+      for (let side = 0; side < HEX_NEIGHBOR_DIRECTIONS.length; side += 1) {
+        const ax = points[side].x;
+        const ay = points[side].y;
+        const bx = points[(side + 1) % 6].x;
+        const by = points[(side + 1) % 6].y;
+
+        graphics.lineStyle(
+          cellLineWidth + 1.2,
+          0x061013,
+          tuning.worldCellStrokeDarkLayerAlpha * lineAlpha,
+        );
+        graphics.lineBetween(ax, ay, bx, by);
+        graphics.lineStyle(cellLineWidth, hexType.strokeColor, strokeAlpha);
+        graphics.lineBetween(ax, ay, bx, by);
+      }
     }
   }
 
-  private renderBorder(cells: HexCell[], hexSize: number): BorderPoint | null {
+  private renderBorder(
+    graphics: Phaser.GameObjects.Graphics,
+    cells: HexCell[],
+    hexSize: number,
+  ): BorderPoint | null {
     const borderRadius = Math.max(4, hexSize);
     const exposedEdges = createExposedHexEdges(cells, borderRadius);
     if (exposedEdges.length === 0) {
@@ -289,45 +371,46 @@ export class WorldRenderer {
     const progressInnerWidth = progressOuterWidth * 0.56;
 
     this.drawJoinedEdges(
-      this.borderGraphics,
+      graphics,
       exposedEdges,
       railOuterWidth + tuning.worldBorderGlowWidth * 0.8,
       0x143640,
       0.3 + this.fillPulse * 0.08,
     );
-    this.drawJoinedEdges(this.borderGraphics, exposedEdges, railOuterWidth, 0x081416, 0.9);
-    this.drawJoinedEdges(this.borderGraphics, exposedEdges, railInnerWidth + 1.2, 0x4dcfe6, 0.42);
-    this.drawJoinedEdges(this.borderGraphics, exposedEdges, railInnerWidth, 0xcafcff, 0.94);
+    this.drawJoinedEdges(graphics, exposedEdges, railOuterWidth, 0x081416, 0.9);
+    this.drawJoinedEdges(graphics, exposedEdges, railInnerWidth + 1.2, 0x4dcfe6, 0.42);
+    this.drawJoinedEdges(graphics, exposedEdges, railInnerWidth, 0xcafcff, 0.94);
 
     if (progressEdges.length === 0) {
       return null;
     }
 
     this.drawJoinedEdges(
-      this.borderGraphics,
+      graphics,
       progressEdges,
       progressOuterWidth + tuning.worldBorderGlowWidth,
       0x0a5d77,
       0.44,
     );
-    this.drawJoinedEdges(this.borderGraphics, progressEdges, progressOuterWidth, 0x39d7f2, 0.78);
+    this.drawJoinedEdges(graphics, progressEdges, progressOuterWidth, 0x39d7f2, 0.78);
     this.drawJoinedEdges(
-      this.borderGraphics,
+      graphics,
       progressEdges,
       progressInnerWidth * 0.92,
       0xc9f9ff,
       0.62,
     );
 
-    this.drawJoinedEdges(this.borderGraphics, trailEdges, progressOuterWidth * 0.92, 0x7de7ff, 0.34);
-    this.drawJoinedEdges(this.borderGraphics, frontEdges, progressOuterWidth * 0.78, 0xf7ca76, 0.96);
-    this.drawJoinedEdges(this.borderGraphics, frontEdges, progressInnerWidth, 0xfff5dd, 0.98);
+    this.drawJoinedEdges(graphics, trailEdges, progressOuterWidth * 0.92, 0x7de7ff, 0.34);
+    this.drawJoinedEdges(graphics, frontEdges, progressOuterWidth * 0.78, 0xf7ca76, 0.96);
+    this.drawJoinedEdges(graphics, frontEdges, progressInnerWidth, 0xfff5dd, 0.98);
 
     const tip = progressEdges[progressEdges.length - 1].end;
-    this.borderGraphics.fillStyle(0xf7d490, 0.96);
-    this.borderGraphics.fillCircle(tip.x, tip.y, Math.max(4.5, progressOuterWidth * 0.24));
-    this.borderGraphics.fillStyle(0xfff8ea, 0.98);
-    this.borderGraphics.fillCircle(tip.x, tip.y, Math.max(2.2, progressInnerWidth * 0.22));
+
+    graphics.fillStyle(0xf7d490, 0.96);
+    graphics.fillCircle(tip.x, tip.y, Math.max(4.5, progressOuterWidth * 0.24));
+    graphics.fillStyle(0xfff8ea, 0.98);
+    graphics.fillCircle(tip.x, tip.y, Math.max(2.2, progressInnerWidth * 0.22));
 
     return tip;
   }

@@ -1,6 +1,6 @@
 import * as Phaser from 'phaser';
 import { tuning } from '@/game/tuning';
-import type { PickupPalette } from '@/game/types';
+import type { DashStateSnapshot, PickupPalette } from '@/game/types';
 import { getPickupDefinition } from '@/entities/pickups/PickupRegistry';
 import {
   getPickupAnimationPhase,
@@ -10,11 +10,13 @@ import { Myriapoda } from '@/entities/myriapoda/Myriapoda';
 import { GraphicsMaskController } from '@/phaser/GraphicsMaskController';
 import { MaskedGraphicsLayer } from '@/phaser/MaskedGraphicsLayer';
 import { vec2ToPixels } from '@/physics/PhysicsUtils';
+import { sampleDashRearAnchor } from '@/rendering/dashFxMath';
 import { LimbRenderer } from '@/rendering/LimbRenderer';
-import { rotateVector } from '@/utils/math';
+import { normalize, rotateVector } from '@/utils/math';
 
 const bodyShadowDepth = 4.9;
 const stomachGradientDepth = 5.02;
+const dashSpiralDepth = 5.03;
 const stomachNoiseDepth = 5.04;
 const bodyDepth = 5.08;
 const limbDepth = 5.1;
@@ -22,6 +24,7 @@ const stomachGlowDepth = 5.14;
 const stomachParticleDepth = 5.16;
 const stomachMembraneDepth = 5.18;
 const shellHighlightDepth = 5.2;
+const dashWaveDepth = 5.22;
 const vacuumDepth = 5.24;
 const stomachNoiseTextureSize = 256;
 
@@ -47,11 +50,13 @@ export class MyriapodaRenderer {
   private readonly stomachGradient: Phaser.GameObjects.Gradient;
   private readonly stomachNoiseQuad: Phaser.GameObjects.NoiseSimplex2D;
   private readonly stomachNoiseLayer: Phaser.GameObjects.Image;
+  private readonly dashRearWhirlGraphics: Phaser.GameObjects.Graphics;
   private readonly shellGraphics: Phaser.GameObjects.Graphics;
   private readonly limbGraphics: Phaser.GameObjects.Graphics;
   private readonly stomachGlowGraphics: Phaser.GameObjects.Graphics;
   private readonly stomachMembraneGraphics: Phaser.GameObjects.Graphics;
   private readonly shellHighlightGraphics: Phaser.GameObjects.Graphics;
+  private readonly dashSideWaveGraphics: Phaser.GameObjects.Graphics;
   private readonly vacuumGraphics: Phaser.GameObjects.Graphics;
   private readonly stomachFxMask: GraphicsMaskController;
   private readonly stomachParticles: MaskedGraphicsLayer;
@@ -88,11 +93,13 @@ export class MyriapodaRenderer {
     this.stomachNoiseLayer.setDepth(stomachNoiseDepth);
     this.stomachNoiseLayer.setAlpha(tuning.myriapodaFxStomachNoiseAlpha);
 
+    this.dashRearWhirlGraphics = scene.add.graphics().setDepth(dashSpiralDepth);
     this.shellGraphics = scene.add.graphics().setDepth(bodyDepth);
     this.limbGraphics = scene.add.graphics().setDepth(limbDepth);
     this.stomachGlowGraphics = scene.add.graphics().setDepth(stomachGlowDepth);
     this.stomachMembraneGraphics = scene.add.graphics().setDepth(stomachMembraneDepth);
     this.shellHighlightGraphics = scene.add.graphics().setDepth(shellHighlightDepth);
+    this.dashSideWaveGraphics = scene.add.graphics().setDepth(dashWaveDepth);
     this.vacuumGraphics = scene.add.graphics().setDepth(vacuumDepth);
 
     this.stomachFxMask = new GraphicsMaskController(scene, {
@@ -116,16 +123,31 @@ export class MyriapodaRenderer {
       blendAmount: tuning.myriapodaFxVacuumBloomAmount,
       useInternal: true,
     });
+    Phaser.Actions.AddEffectBloom(this.dashRearWhirlGraphics, {
+      threshold: tuning.dashFxBloomThreshold,
+      blurRadius: tuning.dashFxBloomRadius,
+      blurSteps: tuning.dashFxBloomSteps,
+      blendAmount: tuning.dashFxBloomAmount,
+      useInternal: true,
+    });
+    Phaser.Actions.AddEffectBloom(this.dashSideWaveGraphics, {
+      threshold: tuning.dashFxBloomThreshold,
+      blurRadius: tuning.dashFxBloomRadius,
+      blurSteps: tuning.dashFxBloomSteps,
+      blendAmount: tuning.dashFxBloomAmount,
+      useInternal: true,
+    });
   }
 
-  update(myriapoda: Myriapoda): void {
+  update(myriapoda: Myriapoda, dashState: DashStateSnapshot): void {
     const headPosition = vec2ToPixels(myriapoda.head.body.getPosition());
-    this.elapsed += tuning.fixedStepSeconds;
+    this.elapsed += Math.min(0.05, this.scene.game.loop.delta / 1000);
     myriapoda.head.sprite.setVisible(false);
 
     this.clear();
     this.renderBody(myriapoda, headPosition);
     this.renderTail(myriapoda);
+    this.renderDashFx(myriapoda, dashState);
     this.renderStomach(myriapoda);
     this.limbRenderer.render(myriapoda);
     this.renderHead(
@@ -138,11 +160,13 @@ export class MyriapodaRenderer {
 
   clear(): void {
     this.bodyShadowGraphics.clear();
+    this.dashRearWhirlGraphics.clear();
     this.shellGraphics.clear();
     this.limbGraphics.clear();
     this.stomachGlowGraphics.clear();
     this.stomachMembraneGraphics.clear();
     this.shellHighlightGraphics.clear();
+    this.dashSideWaveGraphics.clear();
     this.vacuumGraphics.clear();
     this.stomachFxMask.clear();
     this.stomachParticles.clear();
@@ -155,11 +179,13 @@ export class MyriapodaRenderer {
     this.stomachGradient.destroy();
     this.stomachNoiseLayer.destroy();
     this.stomachNoiseQuad.destroy();
+    this.dashRearWhirlGraphics.destroy();
     this.shellGraphics.destroy();
     this.limbGraphics.destroy();
     this.stomachGlowGraphics.destroy();
     this.stomachMembraneGraphics.destroy();
     this.shellHighlightGraphics.destroy();
+    this.dashSideWaveGraphics.destroy();
     this.vacuumGraphics.destroy();
 
     if (this.scene.textures.exists(this.stomachNoiseTextureKey)) {
@@ -494,18 +520,30 @@ export class MyriapodaRenderer {
 
   private renderStomach(myriapoda: Myriapoda): void {
     const stomachAnchor = myriapoda.stomach.getAnchor();
+    const stomachSegment = myriapoda.body.getStomachAnchor();
     const chamberRadius = tuning.stomachRadiusMeters * tuning.pixelsPerMeter;
     const scale = tuning.headRadius / 11;
     const containmentRadius =
       chamberRadius - tuning.stomachContainmentMarginMeters * tuning.pixelsPerMeter;
     const parasites = myriapoda.stomach.getUiParasiteSnapshots();
     const parasiteWeight = Math.min(1, parasites.length / 4);
+    const stomachNormal = {
+      x: -Math.sin(stomachSegment.angle),
+      y: Math.cos(stomachSegment.angle),
+    };
+    const slosh =
+      Math.sin(this.elapsed * 4.6 + stomachSegment.angle * 1.35) *
+      Math.min(0.68, chamberRadius * 0.016);
+    const fxAnchor = {
+      x: stomachAnchor.x + stomachNormal.x * slosh,
+      y: stomachAnchor.y + stomachNormal.y * slosh,
+    };
 
-    this.layoutStomachFxLayers(stomachAnchor, chamberRadius);
+    this.layoutStomachFxLayers(fxAnchor, chamberRadius);
     this.animateStomachFxLayers();
 
     this.stomachFxMask.drawMask((maskGraphics) => {
-      maskGraphics.fillCircle(stomachAnchor.x, stomachAnchor.y, chamberRadius * 0.98);
+      maskGraphics.fillCircle(fxAnchor.x, fxAnchor.y, chamberRadius * 0.98);
     });
     this.stomachParticles.drawMask((maskGraphics) => {
       maskGraphics.fillCircle(stomachAnchor.x, stomachAnchor.y, containmentRadius);
@@ -516,8 +554,8 @@ export class MyriapodaRenderer {
       0.08 + parasiteWeight * 0.04,
     );
     this.stomachGlowGraphics.fillCircle(
-      stomachAnchor.x,
-      stomachAnchor.y,
+      fxAnchor.x,
+      fxAnchor.y,
       chamberRadius * 0.98,
     );
     this.stomachGlowGraphics.fillStyle(
@@ -525,16 +563,16 @@ export class MyriapodaRenderer {
       0.06,
     );
     this.stomachGlowGraphics.fillCircle(
-      stomachAnchor.x,
-      stomachAnchor.y,
+      fxAnchor.x,
+      fxAnchor.y,
       chamberRadius * 0.72,
     );
 
     if (parasiteWeight > 0) {
       this.stomachGlowGraphics.fillStyle(0xff8088, parasiteWeight * 0.08);
       this.stomachGlowGraphics.fillCircle(
-        stomachAnchor.x,
-        stomachAnchor.y,
+        fxAnchor.x,
+        fxAnchor.y,
         chamberRadius * 0.88,
       );
     }
@@ -607,8 +645,8 @@ export class MyriapodaRenderer {
       0.04 + membranePulse * 0.02,
     );
     this.stomachMembraneGraphics.fillCircle(
-      stomachAnchor.x,
-      stomachAnchor.y,
+      fxAnchor.x,
+      fxAnchor.y,
       chamberRadius * 1.02,
     );
     this.stomachMembraneGraphics.lineStyle(
@@ -617,8 +655,8 @@ export class MyriapodaRenderer {
       tuning.myriapodaFxStomachMembraneInnerAlpha + membranePulse * 0.08,
     );
     this.stomachMembraneGraphics.strokeCircle(
-      stomachAnchor.x,
-      stomachAnchor.y,
+      fxAnchor.x,
+      fxAnchor.y,
       chamberRadius,
     );
     this.stomachMembraneGraphics.lineStyle(
@@ -627,8 +665,8 @@ export class MyriapodaRenderer {
       tuning.myriapodaFxStomachMembraneGlowAlpha + membranePulse * 0.08,
     );
     this.stomachMembraneGraphics.strokeCircle(
-      stomachAnchor.x,
-      stomachAnchor.y,
+      fxAnchor.x,
+      fxAnchor.y,
       chamberRadius * 0.88,
     );
   }
@@ -705,6 +743,196 @@ export class MyriapodaRenderer {
       tailTip.y - 0.8,
       Math.max(1, tuning.tailRadiusPx * 0.45),
     );
+  }
+
+  private renderDashFx(myriapoda: Myriapoda, dashState: DashStateSnapshot): void {
+    if (dashState.motionStrength <= 0.01) {
+      return;
+    }
+
+    const dashDirection = normalize(dashState.directionX, dashState.directionY);
+    const forward =
+      dashDirection.x === 0 && dashDirection.y === 0 ? { x: 1, y: 0 } : dashDirection;
+    const tailTip = myriapoda.tail.getTipPixels();
+    const rearAnchor = sampleDashRearAnchor(
+      tailTip,
+      forward,
+      {
+        baseOffsetPx: tuning.dashFxWhirlTailOffsetPx,
+        extraOffsetPx: tuning.dashFxWhirlMotionOffsetPx,
+        motionStrength: dashState.motionStrength,
+      },
+    );
+    this.renderDashBackLines(rearAnchor, forward, dashState.motionStrength);
+    this.renderDashSideLines(myriapoda, forward, dashState.motionStrength);
+  }
+
+  private renderDashBackLines(
+    anchor: { x: number; y: number },
+    forward: { x: number; y: number },
+    strength: number,
+  ): void {
+    const normal = {
+      x: -forward.y,
+      y: forward.x,
+    };
+    for (let lane = -2; lane <= 2; lane += 1) {
+      const laneWeight = 1 - Math.abs(lane) * 0.12;
+      const travel =
+        (this.elapsed * tuning.dashFxLineTravelSpeed + lane * 0.17 + 0.2) % 1;
+      const lateralOffset = lane * tuning.dashFxBackLineSpacingPx;
+      const startDistance = 4 + travel * tuning.dashFxBackLineLeadPx;
+      const lineLength =
+        tuning.dashFxBackLineLengthPx *
+        (0.74 + laneWeight * 0.26) *
+        (0.5 + strength * 0.5);
+      const start = {
+        x: anchor.x - forward.x * startDistance + normal.x * lateralOffset,
+        y: anchor.y - forward.y * startDistance + normal.y * lateralOffset,
+      };
+      const end = {
+        x: anchor.x - forward.x * (startDistance + lineLength) + normal.x * lateralOffset,
+        y: anchor.y - forward.y * (startDistance + lineLength) + normal.y * lateralOffset,
+      };
+
+      this.drawSpeedLine(
+        this.dashRearWhirlGraphics,
+        start,
+        end,
+        3.8 * laneWeight,
+        1.65 * laneWeight,
+        (0.06 + strength * 0.12) * laneWeight,
+        lane * 0.35 + 0.4,
+      );
+    }
+  }
+
+  private renderDashSideLines(
+    myriapoda: Myriapoda,
+    forward: { x: number; y: number },
+    strength: number,
+  ): void {
+    const normal = {
+      x: -forward.y,
+      y: forward.x,
+    };
+    const count = Math.max(1, tuning.dashFxSideLineCount);
+
+    for (const side of [-1, 1] as const) {
+      for (let index = 0; index < count; index += 1) {
+        const t = count === 1 ? 1 : index / (count - 1);
+        const bodyRatio = Phaser.Math.Linear(0.56, 0.88, t);
+        const segment = myriapoda.body.sampleAlongBody(bodyRatio);
+        const offset =
+          segment.radius * 1.55 +
+          Phaser.Math.Linear(
+            tuning.dashFxSideLineBaseOffsetPx,
+            tuning.dashFxSideLineTailOffsetPx,
+            t,
+          );
+        const anchor = {
+          x: segment.x + normal.x * offset * side,
+          y: segment.y + normal.y * offset * side,
+        };
+        const travel =
+          (this.elapsed * tuning.dashFxLineTravelSpeed + t * 0.42 + (side > 0 ? 0.18 : 0.56)) %
+          1;
+        const startDistance = 2 + travel * tuning.dashFxSideLineLeadPx;
+        const lineLength =
+          tuning.dashFxSideLineLengthPx *
+          (0.78 + t * 0.26) *
+          (0.48 + strength * 0.52);
+        const start = {
+          x: anchor.x - forward.x * startDistance,
+          y: anchor.y - forward.y * startDistance,
+        };
+        const end = {
+          x: anchor.x - forward.x * (startDistance + lineLength),
+          y: anchor.y - forward.y * (startDistance + lineLength),
+        };
+        const alpha = 0.05 + strength * (0.08 + t * 0.04);
+
+        this.drawSpeedLine(
+          this.dashSideWaveGraphics,
+          start,
+          end,
+          3.2 - t * 0.4,
+          1.35 - t * 0.15,
+          alpha,
+          t * 0.8 + (side > 0 ? 0.2 : 0.56),
+        );
+      }
+    }
+  }
+
+  private drawSpeedLine(
+    graphics: Phaser.GameObjects.Graphics,
+    start: { x: number; y: number },
+    end: { x: number; y: number },
+    shadowWidth: number,
+    coreWidth: number,
+    alpha: number,
+    phaseOffset: number,
+  ): void {
+    const direction = normalize(start.x - end.x, start.y - end.y);
+    const forward =
+      direction.x === 0 && direction.y === 0 ? { x: 1, y: 0 } : direction;
+    const normal = {
+      x: -forward.y,
+      y: forward.x,
+    };
+    const pulse =
+      1 +
+      Math.sin(this.elapsed * tuning.dashFxLinePulseSpeed + phaseOffset) *
+        tuning.dashFxLinePulseAmount;
+    const glowWidth = shadowWidth * tuning.dashFxLineGlowWidthBoost * pulse;
+    const brightWidth = coreWidth * 0.58 * pulse;
+    const highlightEnd = {
+      x: start.x + (end.x - start.x) * tuning.dashFxLineHighlightLength,
+      y: start.y + (end.y - start.y) * tuning.dashFxLineHighlightLength,
+    };
+
+    graphics.lineStyle(glowWidth, tuning.dashFxLineShadowColor, alpha * 0.65);
+    graphics.strokeLineShape(new Phaser.Geom.Line(start.x, start.y, end.x, end.y));
+    graphics.lineStyle(shadowWidth * pulse, tuning.dashFxLineCoreColor, alpha * 0.72);
+    graphics.strokeLineShape(new Phaser.Geom.Line(start.x, start.y, end.x, end.y));
+    graphics.lineStyle(coreWidth * pulse, tuning.dashFxLineCoreColor, alpha * 1.35);
+    graphics.strokeLineShape(new Phaser.Geom.Line(start.x, start.y, end.x, end.y));
+    graphics.lineStyle(brightWidth, tuning.dashFxLineHighlightColor, alpha * 1.18);
+    graphics.strokeLineShape(
+      new Phaser.Geom.Line(start.x, start.y, highlightEnd.x, highlightEnd.y),
+    );
+
+    const frontGlowX = start.x + forward.x * 1.2;
+    const frontGlowY = start.y + forward.y * 1.2;
+    graphics.fillStyle(tuning.dashFxLineCoreColor, alpha * 0.42);
+    graphics.fillCircle(frontGlowX, frontGlowY, Math.max(0.8, coreWidth * 0.9 * pulse));
+    graphics.fillStyle(tuning.dashFxLineHighlightColor, alpha * 0.78);
+    graphics.fillCircle(frontGlowX, frontGlowY, Math.max(0.45, coreWidth * 0.36 * pulse));
+
+    const chevronTip = {
+      x: start.x + forward.x * tuning.dashFxChevronLengthPx,
+      y: start.y + forward.y * tuning.dashFxChevronLengthPx,
+    };
+    const chevronBase = {
+      x: start.x - forward.x * tuning.dashFxChevronLengthPx * 0.28,
+      y: start.y - forward.y * tuning.dashFxChevronLengthPx * 0.28,
+    };
+    const chevronPoints = [
+      new Phaser.Math.Vector2(chevronTip.x, chevronTip.y),
+      new Phaser.Math.Vector2(
+        chevronBase.x + normal.x * tuning.dashFxChevronWidthPx,
+        chevronBase.y + normal.y * tuning.dashFxChevronWidthPx,
+      ),
+      new Phaser.Math.Vector2(
+        chevronBase.x - normal.x * tuning.dashFxChevronWidthPx,
+        chevronBase.y - normal.y * tuning.dashFxChevronWidthPx,
+      ),
+    ];
+    graphics.fillStyle(tuning.dashFxLineCoreColor, alpha * 0.18);
+    graphics.fillPoints(chevronPoints, true);
+    graphics.lineStyle(Math.max(0.6, brightWidth * 0.7), tuning.dashFxLineHighlightColor, alpha * 0.88);
+    graphics.strokePoints(chevronPoints, true, true);
   }
 
   private renderHead(

@@ -4,6 +4,7 @@ import { tuning } from '@/game/tuning';
 import { GameEvents } from '@/game/events';
 import type {
   CameraImpulsePayload,
+  DashStateSnapshot,
   ExpansionEvent,
   HudSnapshot,
   MoveIntent,
@@ -19,11 +20,14 @@ import { PickupFactory } from '@/entities/pickups/PickupFactory';
 import { CollisionRegistry } from '@/physics/CollisionRegistry';
 import { PhysicsWorld } from '@/physics/PhysicsWorld';
 import { vec2ToPixels } from '@/physics/PhysicsUtils';
+import { EnemyBurstFxRenderer } from '@/rendering/EnemyBurstFxRenderer';
+import { EnemyBurstFxController } from '@/rendering/enemyBurstFx';
 import { MyriapodaRenderer } from '@/rendering/MyriapodaRenderer';
 import { AISystem } from '@/systems/AISystem';
 import { CameraSystem } from '@/systems/CameraSystem';
 import { CombatSystem } from '@/systems/CombatSystem';
 import { DigestSystem } from '@/systems/DigestSystem';
+import { DashSystem } from '@/systems/DashSystem';
 import { FollowChainSystem } from '@/systems/FollowChainSystem';
 import { GrowthSystem } from '@/systems/GrowthSystem';
 import { InputSystem } from '@/systems/InputSystem';
@@ -46,6 +50,18 @@ const stationaryMoveIntent: MoveIntent = {
   strafeY: 0,
 };
 
+const idleDashState: DashStateSnapshot = {
+  cooldownSeconds: 0,
+  cooldownProgress: 1,
+  isReady: true,
+  isActive: false,
+  shakeStrength: 0,
+  motionStrength: 0,
+  phase: 0,
+  directionX: 1,
+  directionY: 0,
+};
+
 interface TransitionPickupSnapshot {
   x: number;
   y: number;
@@ -60,6 +76,7 @@ export class GameScene extends Phaser.Scene {
   private uiMode: UiMode = 'minimal';
   private renderDeltaSeconds = tuning.fixedStepSeconds;
   private lastMoveIntent: MoveIntent = { ...stationaryMoveIntent };
+  private lastDashState: DashStateSnapshot = { ...idleDashState };
   private stageTransitionActive = false;
   private stageTransitionPickups: TransitionPickupSnapshot[] = [];
 
@@ -67,6 +84,8 @@ export class GameScene extends Phaser.Scene {
   private physicsWorld!: PhysicsWorld;
   private myriapoda!: Myriapoda;
   private myriapodaRenderer!: MyriapodaRenderer;
+  private enemyBurstFxController!: EnemyBurstFxController;
+  private enemyBurstFxRenderer!: EnemyBurstFxRenderer;
   private pickups = new Map<string, Pickup>();
   private plants = new Map<string, Plant>();
   private enemies = new Map<string, Enemy>();
@@ -76,6 +95,7 @@ export class GameScene extends Phaser.Scene {
 
   private inputSystem!: InputSystem;
   private movementSystem!: MovementSystem;
+  private dashSystem!: DashSystem;
   private followChainSystem!: FollowChainSystem;
   private vacuumSystem!: VacuumSystem;
   private plantSystem!: PlantSystem;
@@ -99,6 +119,7 @@ export class GameScene extends Phaser.Scene {
     this.uiMode = 'minimal';
     this.renderDeltaSeconds = tuning.fixedStepSeconds;
     this.lastMoveIntent = { ...stationaryMoveIntent };
+    this.lastDashState = { ...idleDashState };
     this.stageTransitionActive = false;
     this.stageTransitionPickups = [];
     this.pickups = new Map<string, Pickup>();
@@ -110,12 +131,15 @@ export class GameScene extends Phaser.Scene {
     this.physicsWorld = new PhysicsWorld(this.collisions);
     this.myriapoda = new Myriapoda(this, this.physicsWorld.world, 0, 0);
     this.myriapodaRenderer = new MyriapodaRenderer(this);
+    this.enemyBurstFxController = new EnemyBurstFxController(this.eventBus);
+    this.enemyBurstFxRenderer = new EnemyBurstFxRenderer(this);
     this.pickupFactory = new PickupFactory(this, this.physicsWorld.world);
     this.plantFactory = new PlantFactory(this, this.physicsWorld.world);
     this.enemyFactory = new EnemyFactory(this, this.physicsWorld.world);
 
     this.inputSystem = new InputSystem(this);
     this.movementSystem = new MovementSystem();
+    this.dashSystem = new DashSystem();
     this.followChainSystem = new FollowChainSystem();
     this.vacuumSystem = new VacuumSystem(this.eventBus);
     this.plantSystem = new PlantSystem(this.eventBus);
@@ -179,17 +203,38 @@ export class GameScene extends Phaser.Scene {
 
     const input = this.inputSystem.getSnapshot();
     const moveIntent = this.movementSystem.update(this.myriapoda.head.body, input);
-    this.lastMoveIntent = moveIntent;
-    const headPlanckPosition = this.myriapoda.head.body.getPosition();
-    this.aiSystem.update(this.enemies, {
-      x: headPlanckPosition.x,
-      y: headPlanckPosition.y,
-    });
+    const didDash = this.dashSystem.step(
+      this.myriapoda.head.body,
+      moveIntent,
+      this.inputSystem.consumeDashRequest(),
+    );
+    const dashState = this.dashSystem.getStateSnapshot();
+    this.lastDashState = dashState;
+    if (didDash) {
+      this.eventBus.emit(GameEvents.cameraImpulse, {
+        duration: tuning.dashMotionSeconds * 0.6,
+        zoom: tuning.dashCameraZoom,
+        shake: tuning.dashCameraShake,
+      });
+    }
+    this.lastMoveIntent = dashState.isActive
+      ? {
+          aimAngle: Math.atan2(dashState.directionY, dashState.directionX),
+          thrust: 1,
+          strafeX: dashState.directionX,
+          strafeY: dashState.directionY,
+        }
+      : moveIntent;
+    this.aiSystem.update(
+      this.enemies,
+      this.myriapoda,
+      dashState,
+    );
     this.physicsWorld.step();
     this.collisions.update();
 
-    this.followChainSystem.update(this.myriapoda);
-    this.myriapoda.syncBodyAttachments(tuning.fixedStepSeconds);
+    this.followChainSystem.update(this.myriapoda, dashState);
+    this.myriapoda.syncBodyAttachments(tuning.fixedStepSeconds, dashState);
     this.vacuumSystem.update(
       this.myriapoda,
       this.pickups,
@@ -208,7 +253,7 @@ export class GameScene extends Phaser.Scene {
     this.combatSystem.update(this.myriapoda, this.enemies, this.collisions, this.physicsWorld.world);
 
     this.growthSystem.update(this.myriapoda);
-    this.myriapoda.syncBodyAttachments(0);
+    this.myriapoda.syncBodyAttachments(0, dashState);
     const headPixelPosition = vec2ToPixels(this.myriapoda.head.body.getPosition());
     this.worldSystem.update(headPixelPosition);
     this.eventBus.emit(GameEvents.hudChanged);
@@ -216,8 +261,9 @@ export class GameScene extends Phaser.Scene {
 
   private fixedUpdateStageTransition(): void {
     this.lastMoveIntent = stationaryMoveIntent;
+    this.lastDashState = this.dashSystem.getStateSnapshot();
     this.freezePlayerBodies();
-    this.myriapoda.syncBodyAttachments(0);
+    this.myriapoda.syncBodyAttachments(0, this.lastDashState);
 
     const headPixelPosition = vec2ToPixels(this.myriapoda.head.body.getPosition());
     this.worldSystem.update(headPixelPosition);
@@ -234,13 +280,17 @@ export class GameScene extends Phaser.Scene {
   private render(): void {
     this.syncActorsToPhysics();
     if (this.stageTransitionActive) {
+      this.enemyBurstFxController.clear();
+      this.enemyBurstFxRenderer.clear();
       this.myriapodaRenderer.clear();
       this.plantGatherGraphics.clear();
       this.debugGraphics.clear();
       return;
     }
 
-    this.myriapodaRenderer.update(this.myriapoda);
+    this.enemyBurstFxController.update(this.renderDeltaSeconds);
+    this.myriapodaRenderer.update(this.myriapoda, this.lastDashState);
+    this.enemyBurstFxRenderer.render(this.enemyBurstFxController.getBursts());
     this.renderPlantGatherCue();
     this.renderDebug();
   }
@@ -383,6 +433,7 @@ export class GameScene extends Phaser.Scene {
       tuning.stomachContainmentMarginMeters,
     );
     const attackCooldown = this.combatSystem.getAttackCooldown();
+    const dashState = this.dashSystem.getStateSnapshot();
 
     return {
       uiMode: this.uiMode,
@@ -401,6 +452,9 @@ export class GameScene extends Phaser.Scene {
         tuning.limbAttackIntervalSeconds,
       ),
       limbReady: attackCooldown === 0,
+      dashCooldown: dashState.cooldownSeconds,
+      dashCooldownProgress: dashState.cooldownProgress,
+      dashReady: dashState.isReady,
       activeLimbId: this.combatSystem.getActiveLimbId(),
       activeParasiteCount: this.myriapoda.stomach.getActiveParasiteCount(),
       parasiteAlertProgress: this.myriapoda.stomach.getParasiteAlertProgress(),
@@ -419,9 +473,12 @@ export class GameScene extends Phaser.Scene {
     this.cameraSystem.triggerExpansion();
     this.stageTransitionActive = true;
     this.lastMoveIntent = stationaryMoveIntent;
+    this.lastDashState = { ...idleDashState };
     this.worldSystem.setSpawningSuppressed(true);
     this.clearTransientWorldEntities();
     this.plantSystem.clearGatherCue();
+    this.enemyBurstFxController.clear();
+    this.enemyBurstFxRenderer.clear();
     this.resetVacuumState();
     this.freezePlayerBodies();
   }
@@ -517,11 +574,13 @@ export class GameScene extends Phaser.Scene {
 
     this.eventBus.off(GameEvents.cameraImpulse, this.handleCameraImpulse, this);
     this.eventBus.off(GameEvents.worldExpanded, this.handleWorldExpanded, this);
-    this.eventBus.removeAllListeners();
+    this.enemyBurstFxController.destroy();
     this.debugToggleKey.off('down', this.cycleUiMode, this);
     this.inputSystem.destroy();
+    this.enemyBurstFxRenderer.destroy();
     this.myriapodaRenderer.destroy();
     this.worldSystem.destroy();
+    this.eventBus.removeAllListeners();
 
     this.pickups.clear();
     this.plants.clear();
@@ -531,6 +590,7 @@ export class GameScene extends Phaser.Scene {
     this.uiMode = 'minimal';
     this.renderDeltaSeconds = tuning.fixedStepSeconds;
     this.lastMoveIntent = { ...stationaryMoveIntent };
+    this.lastDashState = { ...idleDashState };
     this.stageTransitionActive = false;
   }
 }

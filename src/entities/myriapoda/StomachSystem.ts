@@ -136,7 +136,7 @@ export class StomachSystem {
       deltaSeconds,
       tuning.parasiteLifetimeSeconds,
       tuning.parasiteConsumeIntervalSeconds,
-      () => this.consumeOldestPickupForParasite(),
+      () => this.consumeOldestStoredParticle(),
     );
     this.parasites.splice(0, this.parasites.length, ...nextParasites);
     const angle = Math.sin(this.mixTime * 0.9) * 0.55;
@@ -182,6 +182,20 @@ export class StomachSystem {
     return createUiParasiteSnapshots(this.parasites);
   }
 
+  hasStoredParticles(): boolean {
+    return this.particles.length > 0;
+  }
+
+  consumeOldestStoredParticle(): boolean {
+    const particle = this.particles[0];
+    if (!particle) {
+      return false;
+    }
+
+    this.removeParticle(particle, true);
+    return true;
+  }
+
   private removeParticle(particle: StomachParticle | undefined, shouldTrackRemoval = false): void {
     if (!particle) {
       return;
@@ -196,17 +210,6 @@ export class StomachSystem {
     }
     this.world.destroyBody(particle.body);
   }
-
-  private consumeOldestPickupForParasite(): boolean {
-    const particle = this.particles[0];
-    if (!particle) {
-      return false;
-    }
-
-    this.removeParticle(particle, true);
-    return true;
-  }
-
   private keepParticlesInside(): void {
     const radius = tuning.stomachRadiusMeters;
     for (const particle of this.particles) {

@@ -2,12 +2,16 @@ import * as Phaser from 'phaser';
 import * as planck from 'planck';
 import { tuning } from '@/game/tuning';
 import { GameEvents } from '@/game/events';
-import { Enemy } from '@/entities/enemies/Enemy';
+import { Enemy, isLatchedLeech } from '@/entities/enemies/Enemy';
 import { Myriapoda } from '@/entities/myriapoda/Myriapoda';
 import type { LimbRuntime } from '@/entities/myriapoda/LimbController';
 import { CollisionRegistry } from '@/physics/CollisionRegistry';
 import { vec2ToPixels } from '@/physics/PhysicsUtils';
 import { isCircleInStrikeCone } from '@/systems/combat/strikeMath';
+
+export function getEnemyTargetPriority(enemy: Enemy): number {
+  return isLatchedLeech(enemy) ? 1 : 0;
+}
 
 export class CombatSystem {
   private attackCooldown = 0;
@@ -60,6 +64,7 @@ export class CombatSystem {
 
         const strikePose = myriapoda.limbs.getStrikePose(limb, myriapoda.body);
         let nearestEnemyForLimb: Enemy | null = null;
+        let highestPriority = Number.NEGATIVE_INFINITY;
         let nearestDistanceSq = Number.POSITIVE_INFINITY;
         for (const enemy of enemies.values()) {
           const enemyPosition = enemy.body.getPosition();
@@ -68,7 +73,13 @@ export class CombatSystem {
             (strikePose.tipPixels.x - enemyPositionPixels.x) ** 2 +
             (strikePose.tipPixels.y - enemyPositionPixels.y) ** 2;
           const withinCone = this.isEnemyInLimbStrikeCone(myriapoda, limb, enemy);
-          if (withinCone && distanceSq < nearestDistanceSq) {
+          const priority = getEnemyTargetPriority(enemy);
+          if (
+            withinCone &&
+            (priority > highestPriority ||
+              (priority === highestPriority && distanceSq < nearestDistanceSq))
+          ) {
+            highestPriority = priority;
             nearestDistanceSq = distanceSq;
             nearestEnemyForLimb = enemy;
           }
@@ -155,9 +166,10 @@ export class CombatSystem {
       strikePose.tipPixels,
       strikePose.direction,
       enemyPositionPixels,
-      tuning.enemyRadius,
+      enemy.radiusPx,
       tuning.limbAttackConeRangePx,
       tuning.limbAttackConeHalfAngle,
     );
   }
+
 }

@@ -22,7 +22,11 @@ export class JellyfishView {
     const position = vec2ToPixels(body.getPosition());
     const velocity = body.getLinearVelocity();
     const speedPx = Math.hypot(velocity.x, velocity.y) * tuning.pixelsPerMeter;
-    const speedRatio = clamp(speedPx / (tuning.enemyMaxSpeed * tuning.pixelsPerMeter), 0, 1);
+    const speedRatio = clamp(
+      speedPx / (tuning.jellyfishMaxSpeed * tuning.pixelsPerMeter),
+      0,
+      1,
+    );
     const pulseWave =
       0.5 + 0.5 * Math.sin(this.elapsed * jellyfishDefinition.pulseSpeed + this.phaseSeed);
     const bellPulse = 0.45 + pulseWave * 0.35 + speedRatio * 0.2;
@@ -32,17 +36,17 @@ export class JellyfishView {
     const wobble =
       Math.sin(this.elapsed * 1.7 + this.phaseSeed) * jellyfishDefinition.wobbleFactor;
     const bellWidth =
-      tuning.enemyDisplaySize *
+      tuning.jellyfishDisplaySize *
       (jellyfishDefinition.bellWidthBase + bellPulse * jellyfishDefinition.bellWidthPulse);
     const bellHeight =
-      tuning.enemyDisplaySize *
+      tuning.jellyfishDisplaySize *
       (jellyfishDefinition.bellHeightBase - bellPulse * jellyfishDefinition.bellHeightPulse);
     const innerWidth = bellWidth * 0.62;
     const innerHeight = bellHeight * 0.48;
     const skirtY = bellHeight * 0.18;
     const tentacleBaseY = bellHeight * 0.22;
     const tentacleLength =
-      tuning.enemyDisplaySize *
+      tuning.jellyfishDisplaySize *
       (jellyfishDefinition.tentacleLengthBase +
         speedRatio * jellyfishDefinition.tentacleLengthSpeedBonus);
     const tentacleCount = jellyfishDefinition.tentacleCount;

@@ -8,7 +8,7 @@ export type PickupResourceId =
   | 'tissue'
   | 'structuralCell'
   | 'parasite';
-export type EnemyType = 'jellyfish';
+export type EnemyType = 'jellyfish' | 'leech';
 export type HexTypeId = 'dead' | 'restoring' | 'purified' | 'corrupted' | 'corridor';
 export type PlantType =
   | 'fiberPlant'
@@ -66,6 +66,25 @@ export interface Segment {
   y: number;
   angle: number;
   radius: number;
+}
+
+export interface StomachLatchPoint {
+  x: number;
+  y: number;
+  angle: number;
+  slotIndex: number;
+}
+
+export interface DashStateSnapshot {
+  cooldownSeconds: number;
+  cooldownProgress: number;
+  isReady: boolean;
+  isActive: boolean;
+  shakeStrength: number;
+  motionStrength: number;
+  phase: number;
+  directionX: number;
+  directionY: number;
 }
 
 export interface MatterPacket {
@@ -165,6 +184,9 @@ export interface HudSnapshot {
   attackCooldown: number;
   limbCooldownProgress: number;
   limbReady: boolean;
+  dashCooldown: number;
+  dashCooldownProgress: number;
+  dashReady: boolean;
   activeLimbId: string | null;
   pickupCounts: Record<NutrientPickupTier, number>;
   activeParasiteCount: number;

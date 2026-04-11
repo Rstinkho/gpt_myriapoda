@@ -2,6 +2,7 @@ import * as planck from 'planck';
 import { tuning } from '@/game/tuning';
 import { BodyChain } from '@/entities/myriapoda/BodyChain';
 import { pixelsToMeters, vec2ToPixels } from '@/physics/PhysicsUtils';
+import type { DashStateSnapshot } from '@/game/types';
 
 export class TailController {
   readonly guideBody: planck.Body;
@@ -51,7 +52,11 @@ export class TailController {
     ) as planck.MotorJoint;
   }
 
-  update(deltaSeconds: number, bodyChain: BodyChain): void {
+  update(
+    deltaSeconds: number,
+    bodyChain: BodyChain,
+    dashState?: DashStateSnapshot,
+  ): void {
     this.elapsed += deltaSeconds;
     const anchor = bodyChain.getTailAnchor();
     const tangent = {
@@ -62,7 +67,22 @@ export class TailController {
       x: -tangent.y,
       y: tangent.x,
     };
-    const sway = Math.sin(this.elapsed * 3.8) * tuning.tailSwayPx;
+    const baseSway = Math.sin(this.elapsed * 3.8) * tuning.tailSwayPx;
+    const dashWave =
+      Math.sin((dashState?.phase ?? this.elapsed) * tuning.dashWaveFrequency * 0.78 + 0.6) *
+      tuning.tailDashSwayPx *
+      (dashState?.motionStrength ?? 0);
+    const dashKick =
+      Math.sin((dashState?.phase ?? this.elapsed) * tuning.dashWaveFrequency * 1.6 + 1.2) *
+      tuning.tailDashSwayPx *
+      0.22 *
+      (dashState?.shakeStrength ?? 0);
+    const directionalBias =
+      ((normal.x * (dashState?.directionX ?? 0) + normal.y * (dashState?.directionY ?? 0)) *
+        tuning.tailDashSwayPx *
+        0.18 *
+        (dashState?.motionStrength ?? 0));
+    const sway = baseSway + dashWave + dashKick + directionalBias;
     const targetPixels = {
       x: anchor.x - tangent.x * tuning.tailLengthPx + normal.x * sway,
       y: anchor.y - tangent.y * tuning.tailLengthPx + normal.y * sway,
@@ -74,7 +94,13 @@ export class TailController {
         pixelsToMeters(targetPixels.y),
       ),
     );
-    this.motorJoint.setAngularOffset(anchor.angle + Math.sin(this.elapsed * 2.9) * 0.38);
+    const dashSwing =
+      Math.sin((dashState?.phase ?? this.elapsed) * tuning.dashWaveFrequency * 0.64 + 0.4) *
+      tuning.tailDashAngularSwing *
+      (dashState?.motionStrength ?? 0);
+    this.motorJoint.setAngularOffset(
+      anchor.angle + Math.sin(this.elapsed * 2.9) * 0.38 + dashSwing,
+    );
   }
 
   getTipPixels(): { x: number; y: number } {

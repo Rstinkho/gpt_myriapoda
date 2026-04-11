@@ -17,4 +17,9 @@ describe('EnemyDropRegistry', () => {
       'tissue',
     ]);
   });
+
+  it('gives leeches a 20% chance to drop a single biomass', () => {
+    expect(resolveEnemyDrops('leech', 0.5)).toEqual([]);
+    expect(resolveEnemyDrops('leech', 0.1)).toEqual(['biomass']);
+  });
 });

@@ -113,12 +113,13 @@ function createPlantFactory() {
 function createEnemyFactory() {
   let serial = 0;
   return {
-    create: vi.fn((x: number, y: number) => {
+    create: vi.fn((x: number, y: number, type = 'jellyfish') => {
       serial += 1;
       return {
         id: `spawned-enemy-${serial}`,
         x,
         y,
+        type,
       };
     }),
   };
@@ -256,6 +257,67 @@ describe('WorldSystem', () => {
 
     expect(plantFactory.create).not.toHaveBeenCalled();
     expect(enemyFactory.create).not.toHaveBeenCalled();
+  });
+
+  it('passes jellyfish explicitly during stage 1 spawns', () => {
+    const eventBus = new TestEventBus();
+    const pickupFactory = createPickupFactory();
+    const plantFactory = createPlantFactory();
+    const enemyFactory = createEnemyFactory();
+    const pickups = new Map();
+    const plants = new Map();
+    const enemies = new Map();
+    const rolls = [0.95, 0.01, 0.01];
+    const worldSystem = new WorldSystem(
+      {} as never,
+      eventBus as never,
+      pickupFactory as never,
+      plantFactory as never,
+      enemyFactory as never,
+      pickups as never,
+      plants as never,
+      enemies as never,
+      {
+        chooseIndex: () => 0,
+        randomFloat: () => rolls.shift() ?? 0.5,
+      },
+    );
+
+    worldSystem.update({ x: 0, y: 0 });
+
+    expect(enemyFactory.create).toHaveBeenCalled();
+    expect(enemyFactory.create.mock.calls[0][2]).toBe('jellyfish');
+  });
+
+  it('passes leech explicitly once stage 2 spawning is active', () => {
+    const eventBus = new TestEventBus();
+    const pickupFactory = createPickupFactory();
+    const plantFactory = createPlantFactory();
+    const enemyFactory = createEnemyFactory();
+    const pickups = new Map();
+    const plants = new Map();
+    const enemies = new Map();
+    const rolls = [0.95, 0.1, 0.6, 0.6];
+    const worldSystem = new WorldSystem(
+      {} as never,
+      eventBus as never,
+      pickupFactory as never,
+      plantFactory as never,
+      enemyFactory as never,
+      pickups as never,
+      plants as never,
+      enemies as never,
+      {
+        chooseIndex: () => 0,
+        randomFloat: () => rolls.shift() ?? 0.6,
+      },
+    );
+    worldSystem.world.stage = 2;
+
+    worldSystem.update({ x: 0, y: 0 });
+
+    expect(enemyFactory.create).toHaveBeenCalled();
+    expect(enemyFactory.create.mock.calls[0][2]).toBe('leech');
   });
 
   it('releases occupied plant slots so purified hexes can respawn after a transition', () => {

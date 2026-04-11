@@ -1,15 +1,16 @@
 import * as Phaser from 'phaser';
 import * as planck from 'planck';
 import { tuning } from '@/game/tuning';
-import type { Enemy } from '@/entities/enemies/Enemy';
+import type { JellyfishEnemyState } from '@/entities/enemies/Enemy';
 import { JellyfishView } from '@/entities/enemies/jellyfish/JellyfishView';
 import { EnemyBody } from '@/physics/bodies/EnemyBody';
 
-export class JellyfishEnemy implements Enemy {
+export class JellyfishEnemy implements JellyfishEnemyState {
   readonly type = 'jellyfish' as const;
   readonly body: planck.Body;
   readonly view: JellyfishView;
-  health = tuning.enemyHealth;
+  readonly radiusPx = tuning.jellyfishRadius;
+  health = tuning.jellyfishHealth;
 
   constructor(
     scene: Phaser.Scene,
@@ -18,7 +19,15 @@ export class JellyfishEnemy implements Enemy {
     x: number,
     y: number,
   ) {
-    const enemyBody = new EnemyBody(world, id, x, y, tuning.enemyRadius);
+    const enemyBody = new EnemyBody(
+      world,
+      id,
+      x,
+      y,
+      tuning.jellyfishRadius,
+      tuning.jellyfishLinearDamping,
+      tuning.jellyfishAngularDamping,
+    );
     this.body = enemyBody.body;
     this.view = new JellyfishView(scene, id);
   }
