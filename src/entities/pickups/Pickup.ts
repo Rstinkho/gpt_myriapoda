@@ -1,4 +1,4 @@
-import Phaser from 'phaser';
+import * as Phaser from 'phaser';
 import * as planck from 'planck';
 import type { PickupResourceId, PickupTier } from '@/game/types';
 import {
@@ -10,6 +10,7 @@ import {
   getPickupAnimationPhase,
 } from '@/entities/pickups/PickupVisuals';
 import { sampleParasiteWorldLifecycle } from '@/entities/pickups/harmful/parasite/parasiteLifecycle';
+import { tuning } from '@/game/tuning';
 import { pixelsToMeters, vec2FromPixels } from '@/physics/PhysicsUtils';
 
 export interface PickupOptions {
@@ -56,7 +57,7 @@ export class Pickup {
     this.body = world.createBody({
       type: 'dynamic',
       position: vec2FromPixels(x, y),
-      linearDamping: 4.4,
+      linearDamping: tuning.pickupLinearDamping,
       angularDamping: 7,
     });
     const fixture = this.body.createFixture({

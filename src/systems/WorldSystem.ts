@@ -1,4 +1,4 @@
-import Phaser from 'phaser';
+import * as Phaser from 'phaser';
 import { tuning } from '@/game/tuning';
 import { GameEvents } from '@/game/events';
 import type { Enemy } from '@/entities/enemies/Enemy';

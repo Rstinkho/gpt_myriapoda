@@ -13,6 +13,17 @@ describe('vacuumMath', () => {
     expect(result.forceScale).toBeGreaterThan(0);
   });
 
+  it('allows oversized pickups to absorb once they reach the mouth edge', () => {
+    const result = resolveVacuumPull(
+      { x: 17, y: 0 },
+      { x: 0, y: 0 },
+      14,
+      50,
+      17,
+    );
+    expect(result.shouldAbsorb).toBe(true);
+  });
+
   it('rejects pickups behind the head cone', () => {
     expect(isInsideVacuumCone({ x: 30, y: 0 }, { x: 0, y: 0 }, 0, 96, 0.7)).toBe(true);
     expect(isInsideVacuumCone({ x: -30, y: 0 }, { x: 0, y: 0 }, 0, 96, 0.7)).toBe(false);

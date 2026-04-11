@@ -1,4 +1,4 @@
-import Phaser from 'phaser';
+import * as Phaser from 'phaser';
 import { createPhaserConfig } from '@/game/config';
 
 export function createGame(): Phaser.Game {

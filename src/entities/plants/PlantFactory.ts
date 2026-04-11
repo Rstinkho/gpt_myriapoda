@@ -1,4 +1,4 @@
-import type Phaser from 'phaser';
+import type * as Phaser from 'phaser';
 import * as planck from 'planck';
 import type { HexCell, PlantType } from '@/game/types';
 import type { Plant } from '@/entities/plants/Plant';

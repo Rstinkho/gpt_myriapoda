@@ -1,4 +1,4 @@
-import Phaser from 'phaser';
+import * as Phaser from 'phaser';
 import { GameEvents } from '@/game/events';
 import { Myriapoda } from '@/entities/myriapoda/Myriapoda';
 

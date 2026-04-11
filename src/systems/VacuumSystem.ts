@@ -1,4 +1,4 @@
-import Phaser from 'phaser';
+import * as Phaser from 'phaser';
 import * as planck from 'planck';
 import { tuning } from '@/game/tuning';
 import { GameEvents } from '@/game/events';
@@ -54,6 +54,7 @@ export class VacuumSystem {
         mouthPosition,
         tuning.absorbRadius,
         tuning.vacuumConeLength,
+        pickup.definition.radius * pickup.scale,
       );
 
       if (pull.shouldAbsorb) {

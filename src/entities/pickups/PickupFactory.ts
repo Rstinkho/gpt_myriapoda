@@ -1,4 +1,4 @@
-import Phaser from 'phaser';
+import * as Phaser from 'phaser';
 import * as planck from 'planck';
 import type { PickupResourceId, PickupTier } from '@/game/types';
 import { Pickup, type PickupOptions } from '@/entities/pickups/Pickup';

@@ -1,4 +1,4 @@
-import Phaser from 'phaser';
+import * as Phaser from 'phaser';
 import type * as planck from 'planck';
 import { tuning } from '@/game/tuning';
 import type { CameraImpulsePayload, MoveIntent, WorldBounds } from '@/game/types';

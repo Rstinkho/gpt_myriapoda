@@ -1,4 +1,4 @@
-import type Phaser from 'phaser';
+import type * as Phaser from 'phaser';
 import type { PickupAnimationProfile, PickupPalette } from '@/game/types';
 import { rotateVector } from '@/utils/math';
 
@@ -129,10 +129,10 @@ export function projectPickupPoints(
   y: number,
   radius: number,
   angle: number,
-): Array<{ x: number; y: number }> {
+): Phaser.Math.Vector2[] {
   return points.map((point) => {
     const rotated = rotateVector(point.x * radius, point.y * radius, angle);
-    return { x: x + rotated.x, y: y + rotated.y };
+    return { x: x + rotated.x, y: y + rotated.y } as Phaser.Math.Vector2;
   });
 }
 
@@ -159,7 +159,7 @@ export function drawPickupPolygon(
     options.angle,
   );
   graphics.fillStyle(options.fill, options.fillAlpha);
-  graphics.fillPoints(vectors, true);
+  graphics.fillPoints(vectors as Phaser.Math.Vector2[], true);
 
   if (options.stroke !== undefined && options.strokeAlpha !== undefined) {
     graphics.lineStyle(
@@ -167,7 +167,7 @@ export function drawPickupPolygon(
       options.stroke,
       options.strokeAlpha,
     );
-    graphics.strokePoints(vectors, true, true);
+    graphics.strokePoints(vectors as Phaser.Math.Vector2[], true, true);
   }
 }
 

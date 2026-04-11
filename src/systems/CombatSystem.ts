@@ -1,4 +1,4 @@
-import Phaser from 'phaser';
+import * as Phaser from 'phaser';
 import * as planck from 'planck';
 import { tuning } from '@/game/tuning';
 import { GameEvents } from '@/game/events';
@@ -106,7 +106,7 @@ export class CombatSystem {
       if (!enemy) {
         continue;
       }
-      enemy.health = 0;
+      enemy.health = Math.max(0, enemy.health - tuning.limbDamage);
       hitLimbIds.add(hit.limbId);
       this.eventBus.emit(GameEvents.cameraImpulse, {
         duration: 0.12,

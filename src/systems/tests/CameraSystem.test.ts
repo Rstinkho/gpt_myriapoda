@@ -1,11 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('phaser', () => ({
-  default: {
-    Math: {
-      Linear: (start: number, end: number, t: number) => start + (end - start) * t,
-      Clamp: (value: number, min: number, max: number) => Math.min(max, Math.max(min, value)),
-    },
+  Math: {
+    Linear: (start: number, end: number, t: number) => start + (end - start) * t,
+    Clamp: (value: number, min: number, max: number) => Math.min(max, Math.max(min, value)),
   },
 }));
 

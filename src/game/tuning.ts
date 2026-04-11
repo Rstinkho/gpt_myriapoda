@@ -1,9 +1,23 @@
 export const tuning = {
-  pixelsPerMeter: 36,
-  fixedStepSeconds: 1 / 60,
+  // Core simulation
+  pixelsPerMeter: 36, // 36 pixels = 1 meter; this is used for physics scaling and general size reference.
+  fixedStepSeconds: 1 / 60, // The physics simulation runs at a fixed timestep for stability; this is the duration of each step in seconds.
+
+  // Debug & input
+  debugToggleKey: 'TAB',
+
+  // World layout
   worldHexSize: 144,
   worldCellInset: 15,
   initialWorldRadius: 1,
+
+  // World progression
+  growthPickupsPerSegment: 50,
+  // The first world expansion uses this threshold; each next stage adds expansionThresholdStep.
+  initialExpansionThreshold: 20,
+  expansionThresholdStep: 100,
+
+  // Myriapoda body
   initialSegments: 4,
   maxSegments: 30,
   segmentSpacing: 29,
@@ -11,25 +25,41 @@ export const tuning = {
   segmentRadiusStart: 10,
   segmentRadiusEnd: 7,
   bodyAlpha: 0.26,
+  headSpriteScale: 2.6,
+  myriapodaBodyCircleScale: 1.3,
+  myriapodaHeadVisualScale: 1.5,
+  myriapodaMustacheLengthScale: 1.45,
+  myriapodaHeadColor: 0xaee7c0,
+  myriapodaHeadOutlineColor: 0xe6fff1,
+  myriapodaStomachColor: 0xffaecd,
+  limbBaseColor: 0xaee7c0,
+  limbGlowColor: 0xfff3ac,
+
+  // Head movement
   headRadius: 6,
   headThreatRadius: 22,
+  moveSpeed: 4.1,
+  moveAcceleration: 0.14,
+  moveDeceleration: 0.01,
+  turnLerp: 0.18,
+  headLinearDamping: 4.6,
+  headAngularDamping: 8,
+  maxSpeed: 4.1,
+
+  // Vacuum & pickup handling
   vacuumConeLength: 96,
   absorbRadius: 14,
   headEatConeHalfAngle: 0.7,
   vacuumSuctionLerp: 0.16,
   vacuumPickupCountForMaxSuction: 3,
   vacuumConsumePulseSeconds: 0.18,
-  vacuumWispCount: 5,
   vacuumWispWidth: 2.4,
   vacuumWispAlpha: 0.28,
   mouthConsumeBoost: 0.58,
-  moveSpeed: 4.1,
-  moveAcceleration: 0.14,
-  moveDeceleration: 0.01,
-  turnLerp: 0.18,
-  headLinearDamping: 4.6,
-  headAngularDamping: 8, 
-  maxSpeed: 4.1,
+  pickupVacuumForce: 4.5,
+  pickupLinearDamping: 4.4,
+
+  // Camera
   cameraLerp: 0.085,
   cameraLookAhead: 9,
   cameraMotionZoomOut: 0.022,
@@ -48,9 +78,19 @@ export const tuning = {
   cameraHitShake: 0.65,
   cameraExpansionZoom: 0.032,
   cameraExpansionShake: 1.35,
-  growthPickupsPerSegment: 50,
-  initialExpansionThreshold: 20, // This is the number of pickups needed to trigger the first expansion. Each subsequent expansion requires growthPickupsPerSegment more pickups than the last.
-  expansionThresholdStep: 100,
+
+  // UI
+  uiPanelMinWidth: 240,
+  uiPanelMaxWidth: 280,
+  uiPanelMarginTop: 18,
+  uiPanelMarginRight: 20,
+  uiCounterIconSize: 24,
+  uiHeaderPillWidth: 88,
+  uiHeaderPillHeight: 32,
+  uiPanelAccentColor: 0x9fdfff,
+  uiDangerColor: 0xff6d78,
+
+  // World rendering
   worldBorderBaseWidth: 8,
   worldBorderProgressWidth: 10,
   worldBorderGlowWidth: 4,
@@ -64,32 +104,37 @@ export const tuning = {
   worldCellContourAlpha: 0.13,
   worldCellPlayerInfluenceRadiusMultiplier: 1.8,
   worldCellPlayerGlowAlpha: 0.18,
-  worldFillPulseDecay: 1.4, 
+  worldFillPulseDecay: 1.4,
   worldFillDisplayLerp: 0.12,
   worldBorderTrailWindow: 0.2,
   worldBorderFrontWindow: 0.045,
   expansionAnimationSeconds: 3.6,
   worldStageSpacingBreath: 0.11,
   worldRevealCellMinScale: 0.36,
-  targetPickupCount: 4,
+
+  // Enemies & hostile pickups
   targetEnemyCount: 2,
   enemyCap: 10,
   enemySpawnRadiusPadding: 40,
-  pickupVacuumForce: 4.5,
-  pickupLinearDamping: 4.4,
   enemyChaseForce: 0.9,
   enemyMaxSpeed: 1.2,
   enemyLinearDamping: 8.4,
   enemyAngularDamping: 11,
   enemyRadius: 12.2,
   enemyDisplaySize: 22.8,
+  enemyHealth: 1,
+  enemyShardScale: 1,
+  parasiteDropChance: 0.15,
+  parasiteLifetimeSeconds: 20,
+  parasiteConsumeIntervalSeconds: 2,
+
+  // Limb combat
   limbCount: 4,
   limbLinks: 4,
   limbLinkLengthPx: 6,
   limbThicknessPx: 2,
   limbCooldownSeconds: 0.35,
   limbAttackIntervalSeconds: 3,
-  limbAttackRadiusPx: 22,
   limbAttackConeRangePx: 56,
   limbAttackConeHalfAngle: Math.PI / 4,
   limbRestReachPx: 8,
@@ -102,17 +147,10 @@ export const tuning = {
   limbRootPull: 30,
   limbChainPull: 15,
   limbRecoveryPullBoost: 1.45,
-  limbRecoveryVelocityDamping: 0.78,
-  limbRecoveryAngularDamping: 0.68,
   limbHomeSnapDistancePx: 2.2,
-  limbHomeSnapSpeed: 0.18,
   limbDamage: 1,
-  enemyHealth: 1,
-  enemyShardCount: 6,
-  enemyShardScale: 1,
-  parasiteDropChance: 0.15,
-  parasiteLifetimeSeconds: 20,
-  parasiteConsumeIntervalSeconds: 2,
+
+  // Plants
   purifiedPlantOccupancyChance: 0.8,
   plantVacuumForce: 4.4,
   plantGatherRadiusPx: 28,
@@ -135,15 +173,18 @@ export const tuning = {
   fiberPlantMidVacuumForceScale: 1.02,
   fiberPlantLowerVacuumForceScale: 0.52,
   fiberPlantBaseGrowthScale: 0.28,
+
+  // Tail
   tailLengthPx: 30,
   tailRadiusPx: 3.2,
   tailMotorForce: 2.8,
   tailMotorTorque: 1.6,
   tailCorrectionFactor: 0.38,
   tailSwayPx: 8,
+
+  // Stomach
   stomachRadiusMeters: 0.64,
   stomachContainmentMarginMeters: 0.04,
   stomachParticleLimit: 100,
   stomachMixerAngularSpeed: 1.4,
-  debugToggleKey: 'TAB',
 } as const;

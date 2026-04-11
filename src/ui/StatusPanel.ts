@@ -1,4 +1,5 @@
-import Phaser from 'phaser';
+import * as Phaser from 'phaser';
+import { tuning } from '@/game/tuning';
 import type {
   HudSnapshot,
   NutrientPickupTier,
@@ -14,6 +15,7 @@ import {
   applyPickupSpriteAnimation,
   getPickupAnimationPhase,
 } from '@/entities/pickups/PickupVisuals';
+import { MaskedGraphicsLayer } from '@/phaser/MaskedGraphicsLayer';
 import { getPickupCountEntries, showsStatusPanel } from '@/ui/uiState';
 
 interface PanelMetrics {
@@ -36,12 +38,15 @@ interface PanelMetrics {
   pickupRowY: number;
 }
 
+function toCssHex(color: number): string {
+  return `#${color.toString(16).padStart(6, '0')}`;
+}
+
 export class StatusPanel {
   private readonly panelGraphics: Phaser.GameObjects.Graphics;
   private readonly meterGraphics: Phaser.GameObjects.Graphics;
   private readonly chamberGraphics: Phaser.GameObjects.Graphics;
-  private readonly stomachParticleGraphics: Phaser.GameObjects.Graphics;
-  private readonly stomachMaskGraphics: Phaser.GameObjects.Graphics;
+  private readonly stomachParticles: MaskedGraphicsLayer;
   private readonly stageLabel: Phaser.GameObjects.Text;
   private readonly stageValue: Phaser.GameObjects.Text;
   private readonly limbLabel: Phaser.GameObjects.Text;
@@ -55,18 +60,20 @@ export class StatusPanel {
   private snapshot?: HudSnapshot;
 
   constructor(private readonly scene: Phaser.Scene) {
+    const accentColor = toCssHex(tuning.uiPanelAccentColor);
     this.panelGraphics = scene.add.graphics().setScrollFactor(0).setDepth(1000);
     this.meterGraphics = scene.add.graphics().setScrollFactor(0).setDepth(1001);
     this.chamberGraphics = scene.add.graphics().setScrollFactor(0).setDepth(1001);
-    this.stomachParticleGraphics = scene.add.graphics().setScrollFactor(0).setDepth(1002);
-    this.stomachMaskGraphics = scene.add.graphics().setScrollFactor(0).setDepth(999);
-    this.stomachMaskGraphics.setVisible(false);
-    this.stomachParticleGraphics.setMask(this.stomachMaskGraphics.createGeometryMask());
+    this.stomachParticles = new MaskedGraphicsLayer(scene, {
+      contentDepth: 1002,
+      maskDepth: 999,
+      scrollFactor: 0,
+    });
 
     this.stageLabel = scene.add.text(0, 0, 'STAGE', {
       fontFamily: 'Trebuchet MS',
       fontSize: '15px',
-      color: '#cdeef3',
+      color: accentColor,
       letterSpacing: 2,
     });
     this.stageLabel.setScrollFactor(0).setDepth(1002);
@@ -83,7 +90,7 @@ export class StatusPanel {
     this.limbLabel = scene.add.text(0, 0, 'LIMB CD', {
       fontFamily: 'Trebuchet MS',
       fontSize: '15px',
-      color: '#bde4e7',
+      color: accentColor,
       letterSpacing: 1.5,
     });
     this.limbLabel.setScrollFactor(0).setDepth(1002);
@@ -100,7 +107,7 @@ export class StatusPanel {
     this.segmentLabel = scene.add.text(0, 0, 'SEGMENT COUNT', {
       fontFamily: 'Trebuchet MS',
       fontSize: '14px',
-      color: '#bde4e7',
+      color: accentColor,
       letterSpacing: 1.2,
     });
     this.segmentLabel.setScrollFactor(0).setDepth(1002);
@@ -155,10 +162,13 @@ export class StatusPanel {
   }
 
   layout(): void {
-    const width = Math.min(280, Math.max(240, this.scene.scale.width * 0.24));
-    const height = Math.min(this.scene.scale.height - 32, 560);
-    const x = this.scene.scale.width - width - 20;
-    const y = 18;
+    const width = Math.min(
+      tuning.uiPanelMaxWidth,
+      Math.max(tuning.uiPanelMinWidth, this.scene.scale.width * 0.24),
+    );
+    const height = Math.min(this.scene.scale.height - tuning.uiPanelMarginTop * 2, 560);
+    const x = this.scene.scale.width - width - tuning.uiPanelMarginRight;
+    const y = tuning.uiPanelMarginTop;
     const meterWidth = width - 48;
     const chamberY = y + 214;
     const pickupRowY = y + height - 48;
@@ -200,10 +210,13 @@ export class StatusPanel {
     });
     const slotWidth = (width - 48) / counterEntries.length;
     counterEntries.forEach((entry, index) => {
-      const iconX = x + 24 + slotWidth * index + 16;
-      const textX = iconX + 24;
+      const iconX = x + 24 + slotWidth * index + tuning.uiCounterIconSize * (2 / 3);
+      const textX = iconX + tuning.uiCounterIconSize;
       this.counterIcons[entry.tier].setPosition(iconX, pickupRowY);
-      this.counterIcons[entry.tier].setDisplaySize(24, 24);
+      this.counterIcons[entry.tier].setDisplaySize(
+        tuning.uiCounterIconSize,
+        tuning.uiCounterIconSize,
+      );
       this.counterTexts[entry.tier].setPosition(textX, pickupRowY - 11);
     });
 
@@ -218,8 +231,7 @@ export class StatusPanel {
       this.panelGraphics.clear();
       this.meterGraphics.clear();
       this.chamberGraphics.clear();
-      this.stomachParticleGraphics.clear();
-      this.stomachMaskGraphics.clear();
+      this.stomachParticles.clear();
       return;
     }
 
@@ -244,8 +256,7 @@ export class StatusPanel {
     this.panelGraphics.clear();
     this.meterGraphics.clear();
     this.chamberGraphics.clear();
-    this.stomachParticleGraphics.clear();
-    this.stomachMaskGraphics.clear();
+    this.stomachParticles.clear();
 
     this.meterGraphics.fillStyle(0x0b1518, 0.46);
     this.meterGraphics.fillRoundedRect(
@@ -255,7 +266,7 @@ export class StatusPanel {
       metrics.meterHeight,
       metrics.meterHeight * 0.5,
     );
-    this.meterGraphics.lineStyle(1.2, 0xcff7ff, 0.2);
+    this.meterGraphics.lineStyle(1.2, tuning.uiPanelAccentColor, 0.2);
     this.meterGraphics.strokeRoundedRect(
       metrics.meterX,
       metrics.meterY,
@@ -266,7 +277,7 @@ export class StatusPanel {
 
     const fillWidth = metrics.meterWidth * snapshot.limbCooldownProgress;
     if (fillWidth > 0) {
-      this.meterGraphics.fillStyle(0x56ccff, 0.44);
+      this.meterGraphics.fillStyle(tuning.uiPanelAccentColor, 0.44);
       this.meterGraphics.fillRoundedRect(
         metrics.meterX,
         metrics.meterY,
@@ -322,7 +333,7 @@ export class StatusPanel {
     const arcCenterX = (wallLeft + wallRight) * 0.5;
     const arcCenterY = bottomY - arcRadius;
 
-    this.chamberGraphics.fillStyle(0xa8ebff, 0.08);
+    this.chamberGraphics.fillStyle(tuning.uiPanelAccentColor, 0.08);
     this.fillUInterior(
       metrics.chamberInnerX,
       metrics.chamberInnerX + metrics.chamberInnerWidth,
@@ -330,7 +341,10 @@ export class StatusPanel {
       metrics.chamberInnerY + metrics.chamberInnerHeight - 8,
     );
     if (parasiteAlertProgress > 0) {
-      this.chamberGraphics.fillStyle(0xff6d78, 0.08 + parasiteAlertProgress * 0.16);
+      this.chamberGraphics.fillStyle(
+        tuning.uiDangerColor,
+        0.08 + parasiteAlertProgress * 0.16,
+      );
       this.fillUInterior(
         metrics.chamberInnerX,
         metrics.chamberInnerX + metrics.chamberInnerWidth,
@@ -341,13 +355,13 @@ export class StatusPanel {
 
     this.chamberGraphics.lineStyle(
       14,
-      parasiteAlertProgress > 0 ? 0xaa313d : 0x90e8ff,
+      parasiteAlertProgress > 0 ? tuning.uiDangerColor : tuning.uiPanelAccentColor,
       0.12 + parasiteAlertProgress * 0.1,
     );
     this.strokeUShape(wallLeft, wallRight, topY, arcCenterX, arcCenterY, arcRadius);
     this.chamberGraphics.lineStyle(
       8,
-      parasiteAlertProgress > 0 ? 0xff8e97 : 0xcef9ff,
+      parasiteAlertProgress > 0 ? tuning.uiDangerColor : tuning.uiPanelAccentColor,
       0.4 + parasiteAlertProgress * 0.18,
     );
     this.strokeUShape(wallLeft, wallRight, topY, arcCenterX, arcCenterY, arcRadius);
@@ -358,20 +372,21 @@ export class StatusPanel {
     );
     this.strokeUShape(wallLeft, wallRight, topY, arcCenterX, arcCenterY, arcRadius);
     this.chamberGraphics.fillStyle(
-      parasiteAlertProgress > 0 ? 0xff7d85 : 0xa6e8ff,
+      parasiteAlertProgress > 0 ? tuning.uiDangerColor : tuning.uiPanelAccentColor,
       0.08 + parasiteAlertProgress * 0.12,
     );
     this.chamberGraphics.fillCircle(wallLeft, topY, 6);
     this.chamberGraphics.fillCircle(wallRight, topY, 6);
 
-    this.stomachMaskGraphics.fillStyle(0xffffff, 1);
-    this.fillUInterior(
-      metrics.chamberInnerX,
-      metrics.chamberInnerX + metrics.chamberInnerWidth,
-      metrics.chamberInnerY,
-      metrics.chamberInnerY + metrics.chamberInnerHeight - 8,
-      this.stomachMaskGraphics,
-    );
+    this.stomachParticles.drawMask((maskGraphics) => {
+      this.fillUInterior(
+        metrics.chamberInnerX,
+        metrics.chamberInnerX + metrics.chamberInnerWidth,
+        metrics.chamberInnerY,
+        metrics.chamberInnerY + metrics.chamberInnerHeight - 8,
+        maskGraphics,
+      );
+    });
   }
 
   private strokeUShape(
@@ -444,7 +459,7 @@ export class StatusPanel {
             0.54,
         );
       getPickupDefinition(particle.resourceId).drawParticle(
-        this.stomachParticleGraphics,
+        this.stomachParticles.graphics,
         {
           x,
           y,
@@ -477,7 +492,7 @@ export class StatusPanel {
             Math.min(metrics.chamberInnerWidth, metrics.chamberInnerHeight) *
             0.54,
         );
-      getPickupDefinition('parasite').drawParticle(this.stomachParticleGraphics, {
+      getPickupDefinition('parasite').drawParticle(this.stomachParticles.graphics, {
         x,
         y,
         radius,
@@ -493,7 +508,7 @@ export class StatusPanel {
     this.panelGraphics.setVisible(visible);
     this.meterGraphics.setVisible(visible);
     this.chamberGraphics.setVisible(visible);
-    this.stomachParticleGraphics.setVisible(visible);
+    this.stomachParticles.setVisible(visible);
     this.stageLabel.setVisible(visible);
     this.stageValue.setVisible(visible);
     this.limbLabel.setVisible(visible);

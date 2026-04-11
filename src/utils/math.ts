@@ -31,16 +31,6 @@ export function distance(a: VectorLike, b: VectorLike): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
-export function distanceSq(a: VectorLike, b: VectorLike): number {
-  const dx = a.x - b.x;
-  const dy = a.y - b.y;
-  return dx * dx + dy * dy;
-}
-
-export function angleBetween(a: VectorLike, b: VectorLike): number {
-  return Math.atan2(b.y - a.y, b.x - a.x);
-}
-
 export function rotateVector(x: number, y: number, angle: number): VectorLike {
   const cos = Math.cos(angle);
   const sin = Math.sin(angle);
@@ -51,7 +41,7 @@ export function rotateVector(x: number, y: number, angle: number): VectorLike {
   };
 }
 
-export function magnitude(x: number, y: number): number {
+function magnitude(x: number, y: number): number {
   return Math.hypot(x, y);
 }
 
@@ -62,8 +52,4 @@ export function normalize(x: number, y: number): VectorLike {
   }
 
   return { x: x / mag, y: y / mag };
-}
-
-export function scale(v: VectorLike, amount: number): VectorLike {
-  return { x: v.x * amount, y: v.y * amount };
 }

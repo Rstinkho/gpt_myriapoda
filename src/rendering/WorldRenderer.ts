@@ -1,4 +1,4 @@
-import Phaser from 'phaser';
+import * as Phaser from 'phaser';
 import { tuning } from '@/game/tuning';
 import { getHexTypeDefinition } from '@/game/hexTypes';
 import type { ExpansionEvent, HexCell, WorldRenderSnapshot } from '@/game/types';
@@ -222,32 +222,32 @@ export class WorldRenderer {
       const strokeAlpha = (cellStrokeAlpha + cell.playerInfluence * 0.18) * cell.alpha;
 
       this.graphics.fillStyle(hexType.shadowColor, shadowAlpha);
-      this.graphics.fillPoints(shadowPoints, true);
+      this.graphics.fillPoints(shadowPoints as Phaser.Math.Vector2[], true);
 
       this.graphics.fillStyle(hexType.fillColor, fillAlpha);
-      this.graphics.fillPoints(points, true);
+      this.graphics.fillPoints(points as Phaser.Math.Vector2[], true);
 
       this.graphics.fillStyle(hexType.reactiveColor, reactiveAlpha);
-      this.graphics.fillPoints(points, true);
+      this.graphics.fillPoints(points as Phaser.Math.Vector2[], true);
 
       if (cell.playerInfluence > 0.01) {
         this.graphics.fillStyle(0x66dbff, cell.playerInfluence * 0.085 * cell.alpha);
-        this.graphics.fillPoints(shadowPoints, true);
+        this.graphics.fillPoints(shadowPoints as Phaser.Math.Vector2[], true);
       }
 
       this.graphics.fillStyle(hexType.glowColor, innerGlowAlpha);
-      this.graphics.fillPoints(innerPoints, true);
+      this.graphics.fillPoints(innerPoints as Phaser.Math.Vector2[], true);
 
       this.graphics.lineStyle(cellLineWidth + 1.2, 0x061013, 0.54 * cell.alpha);
-      this.graphics.strokePoints(points, true, true);
+      this.graphics.strokePoints(points as Phaser.Math.Vector2[], true, true);
       this.graphics.lineStyle(cellLineWidth, hexType.strokeColor, strokeAlpha);
-      this.graphics.strokePoints(points, true, true);
+      this.graphics.strokePoints(points as Phaser.Math.Vector2[], true, true);
       this.graphics.lineStyle(
         Math.max(0.8, cellLineWidth * 0.42),
         hexType.contourColor,
         contourAlpha,
       );
-      this.graphics.strokePoints(innerPoints, true, true);
+      this.graphics.strokePoints(innerPoints as Phaser.Math.Vector2[], true, true);
     }
   }
 

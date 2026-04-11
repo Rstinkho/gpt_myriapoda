@@ -1,4 +1,4 @@
-import Phaser from 'phaser';
+import * as Phaser from 'phaser';
 import * as planck from 'planck';
 import { tuning } from '@/game/tuning';
 import type { Enemy } from '@/entities/enemies/Enemy';

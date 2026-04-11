@@ -1,4 +1,4 @@
-import Phaser from 'phaser';
+import * as Phaser from 'phaser';
 import { GameEvents } from '@/game/events';
 import type { HudSnapshot } from '@/game/types';
 import { StatusPanel } from '@/ui/StatusPanel';
@@ -27,16 +27,12 @@ export class UIScene extends Phaser.Scene {
   create(): void {
     this.topHeader = new TopHeader(this);
     this.statusPanel = new StatusPanel(this);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.handleSceneShutdown, this);
     this.scale.on('resize', this.handleResize, this);
     this.handleResize();
     this.refresh();
 
     this.eventBus?.on(GameEvents.hudChanged, this.refresh, this);
-  }
-
-  shutdown(): void {
-    this.scale.off('resize', this.handleResize, this);
-    this.eventBus?.off(GameEvents.hudChanged, this.refresh, this);
   }
 
   private handleResize(): void {
@@ -52,5 +48,14 @@ export class UIScene extends Phaser.Scene {
     const snapshot = this.getSnapshot();
     this.topHeader?.setSnapshot(snapshot);
     this.statusPanel?.setSnapshot(snapshot);
+  }
+
+  private handleSceneShutdown(): void {
+    this.scale.off('resize', this.handleResize, this);
+    this.eventBus?.off(GameEvents.hudChanged, this.refresh, this);
+    this.eventBus = undefined;
+    this.getSnapshot = undefined;
+    this.topHeader = undefined;
+    this.statusPanel = undefined;
   }
 }

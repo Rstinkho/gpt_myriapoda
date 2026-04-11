@@ -1,5 +1,4 @@
 import type {
-  HudSnapshot,
   PickupResourceId,
   NutrientPickupTier,
   UiMode,
@@ -68,7 +67,7 @@ export function getLimbCooldownProgress(
   return clamp(1 - attackCooldownSeconds / maxCooldownSeconds, 0, 1);
 }
 
-export function createEmptyPickupCounts(): Record<NutrientPickupTier, number> {
+function createEmptyPickupCounts(): Record<NutrientPickupTier, number> {
   return {
     basic: 0,
     advanced: 0,
@@ -106,10 +105,6 @@ export function createUiStomachParticleSnapshots(
     angle: particle.angle,
     radius: clamp(particle.radiusMeters / usableRadius, 0.04, 0.4),
   }));
-}
-
-export function isHudDebugEnabled(snapshot: Pick<HudSnapshot, 'uiMode'>): boolean {
-  return showsWorldDebug(snapshot.uiMode);
 }
 
 export function getPickupCountEntries(

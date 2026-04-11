@@ -10,7 +10,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "phaser": "^3.90.0",
+    "phaser": "^4.0.0",
     "planck": "^1.0.0-alpha.2"
   },
   "devDependencies": {

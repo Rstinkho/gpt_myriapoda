@@ -28,17 +28,39 @@ export interface LimbStrikePose {
   direction: { x: number; y: number };
 }
 
-export class LimbController {
-  readonly limbs: LimbRuntime[];
-  private elapsed = 0;
+function createLimbMounts() {
+  const limbCount = Math.max(1, tuning.limbCount);
 
-  constructor(world: planck.World, bodyChain: BodyChain) {
-    const limbMounts = [
+  if (limbCount === 4) {
+    return [
       { anchorRatio: 0, side: -1 as const, phase: 0.1 },
       { anchorRatio: 0, side: 1 as const, phase: 0.38 },
       { anchorRatio: 1, side: -1 as const, phase: 0.64 },
       { anchorRatio: 1, side: 1 as const, phase: 0.92 },
     ];
+  }
+
+  const pairCount = Math.ceil(limbCount / 2);
+
+  return Array.from({ length: limbCount }, (_, index) => {
+    const pairIndex = Math.floor(index / 2);
+    const anchorRatio =
+      pairCount === 1 ? 0.5 : pairIndex / Math.max(1, pairCount - 1);
+
+    return {
+      anchorRatio,
+      side: (index % 2 === 0 ? -1 : 1) as -1 | 1,
+      phase: (index + 0.5) / limbCount,
+    };
+  });
+}
+
+export class LimbController {
+  readonly limbs: LimbRuntime[];
+  private elapsed = 0;
+
+  constructor(world: planck.World, bodyChain: BodyChain) {
+    const limbMounts = createLimbMounts();
     this.limbs = limbMounts.map(({ anchorRatio, side, phase }, index) => {
       const segment = bodyChain.sampleAlongBody(anchorRatio);
       const mountOffsetPx = Math.max(4.5, segment.radius * 0.8);

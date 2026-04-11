@@ -47,12 +47,10 @@ const rendererState = {
 };
 
 vi.mock('phaser', () => ({
-  default: {
-    Events: {
-      EventEmitter: TestEventBus,
-    },
-    Scene: class Scene {},
+  Events: {
+    EventEmitter: TestEventBus,
   },
+  Scene: class Scene {},
 }));
 
 vi.mock('@/rendering/WorldRenderer', () => ({

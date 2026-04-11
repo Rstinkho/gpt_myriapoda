@@ -1,4 +1,4 @@
-import Phaser from 'phaser';
+import * as Phaser from 'phaser';
 import { getPickupAnimationPhase } from '@/entities/pickups/PickupVisuals';
 
 interface FiberPlantRenderSnapshot {

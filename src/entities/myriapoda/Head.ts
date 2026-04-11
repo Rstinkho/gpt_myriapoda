@@ -1,4 +1,4 @@
-import Phaser from 'phaser';
+import * as Phaser from 'phaser';
 import * as planck from 'planck';
 import { textureKeys } from '@/game/assets';
 import { tuning } from '@/game/tuning';
@@ -12,7 +12,10 @@ export class Head {
     const headBody = new HeadBody(world, 'head', x, y);
     this.body = headBody.body;
     this.sprite = scene.add.image(x, y, textureKeys.head);
-    this.sprite.setDisplaySize(tuning.headRadius * 2.6, tuning.headRadius * 2.6);
+    this.sprite.setDisplaySize(
+      tuning.headRadius * tuning.headSpriteScale,
+      tuning.headRadius * tuning.headSpriteScale,
+    );
     this.sprite.setAlpha(0.8);
     this.sprite.setDepth(12);
   }

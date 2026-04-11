@@ -1,6 +1,11 @@
-import Phaser from 'phaser';
+import * as Phaser from 'phaser';
+import { tuning } from '@/game/tuning';
 import type { HudSnapshot } from '@/game/types';
 import { getModeDotStates } from '@/ui/uiState';
+
+function toCssHex(color: number): string {
+  return `#${color.toString(16).padStart(6, '0')}`;
+}
 
 export class TopHeader {
   private readonly graphics: Phaser.GameObjects.Graphics;
@@ -10,6 +15,7 @@ export class TopHeader {
   private uiMode: HudSnapshot['uiMode'] = 'minimal';
 
   constructor(private readonly scene: Phaser.Scene) {
+    const accentColor = toCssHex(tuning.uiPanelAccentColor);
     this.graphics = scene.add.graphics();
     this.graphics.setScrollFactor(0).setDepth(1000);
 
@@ -26,7 +32,7 @@ export class TopHeader {
       fontFamily: 'Palatino Linotype',
       fontStyle: 'italic',
       fontSize: '24px',
-      color: '#bfe2de',
+      color: accentColor,
       stroke: '#061014',
       strokeThickness: 5,
     });
@@ -35,7 +41,7 @@ export class TopHeader {
     this.tabLabel = scene.add.text(0, 0, 'TAB', {
       fontFamily: 'Trebuchet MS',
       fontSize: '15px',
-      color: '#eaffff',
+      color: accentColor,
       letterSpacing: 2,
     });
     this.tabLabel.setOrigin(0.5).setScrollFactor(0).setDepth(1002);
@@ -44,7 +50,10 @@ export class TopHeader {
   layout(): void {
     this.titleLineOne.setPosition(24, 18);
     this.titleLineTwo.setPosition(26, 52);
-    this.tabLabel.setPosition(68, 102);
+    this.tabLabel.setPosition(
+      24 + tuning.uiHeaderPillWidth * 0.5,
+      86 + tuning.uiHeaderPillHeight * 0.5,
+    );
     this.redraw();
   }
 
@@ -58,30 +67,44 @@ export class TopHeader {
 
     const pillX = 24;
     const pillY = 86;
-    const pillWidth = 88;
-    const pillHeight = 32;
+    const pillWidth = tuning.uiHeaderPillWidth;
+    const pillHeight = tuning.uiHeaderPillHeight;
+    const pillRadius = pillHeight * 0.5;
+    const leftDotX = pillX + pillWidth * (12 / 88);
+    const rightDotX = pillX + pillWidth * 0.5;
+    const dotY = pillY + pillHeight + 18;
     const [leftDotLit, rightDotLit] = getModeDotStates(this.uiMode);
 
-    this.graphics.fillStyle(0x9fdfff, 0.09);
-    this.graphics.lineStyle(1.5, 0xe6fbff, 0.38);
-    this.graphics.fillRoundedRect(pillX, pillY, pillWidth, pillHeight, 16);
-    this.graphics.strokeRoundedRect(pillX, pillY, pillWidth, pillHeight, 16);
+    this.graphics.fillStyle(tuning.uiPanelAccentColor, 0.09);
+    this.graphics.lineStyle(1.5, tuning.uiPanelAccentColor, 0.38);
+    this.graphics.fillRoundedRect(pillX, pillY, pillWidth, pillHeight, pillRadius);
+    this.graphics.strokeRoundedRect(pillX, pillY, pillWidth, pillHeight, pillRadius);
     this.graphics.lineStyle(1, 0xffffff, 0.12);
-    this.graphics.strokeRoundedRect(pillX + 3, pillY + 3, pillWidth - 6, pillHeight - 6, 13);
+    this.graphics.strokeRoundedRect(
+      pillX + 3,
+      pillY + 3,
+      pillWidth - 6,
+      pillHeight - 6,
+      Math.max(8, pillRadius - 3),
+    );
 
-    this.drawModeDot(36, 136, leftDotLit);
-    this.drawModeDot(68, 136, rightDotLit);
+    this.drawModeDot(leftDotX, dotY, leftDotLit);
+    this.drawModeDot(rightDotX, dotY, rightDotLit);
   }
 
   private drawModeDot(x: number, y: number, lit: boolean): void {
     if (lit) {
-      this.graphics.fillStyle(0x9cf0ff, 0.22);
+      this.graphics.fillStyle(tuning.uiPanelAccentColor, 0.22);
       this.graphics.fillCircle(x, y, 11);
     }
 
-    this.graphics.fillStyle(lit ? 0xe8ffff : 0x53707c, lit ? 0.92 : 0.48);
+    this.graphics.fillStyle(lit ? tuning.uiPanelAccentColor : 0x53707c, lit ? 0.92 : 0.48);
     this.graphics.fillCircle(x, y, 7.5);
-    this.graphics.lineStyle(1.4, lit ? 0xffffff : 0x8ab2bd, lit ? 0.4 : 0.2);
+    this.graphics.lineStyle(
+      1.4,
+      lit ? 0xffffff : tuning.uiPanelAccentColor,
+      lit ? 0.4 : 0.2,
+    );
     this.graphics.strokeCircle(x, y, 7.5);
   }
 }

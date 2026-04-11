@@ -1,4 +1,4 @@
-import Phaser from 'phaser';
+import * as Phaser from 'phaser';
 import { BootScene } from '@/scenes/BootScene';
 import { PreloadScene } from '@/scenes/PreloadScene';
 import { GameScene } from '@/scenes/GameScene';
@@ -17,9 +17,6 @@ export function createPhaserConfig(): Phaser.Types.Core.GameConfig {
     input: {
       mouse: true,
       touch: true,
-    },
-    physics: {
-      default: 'arcade',
     },
     scene: [BootScene, PreloadScene, GameScene, UIScene],
     render: {

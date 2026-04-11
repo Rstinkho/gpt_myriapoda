@@ -1,4 +1,4 @@
-import Phaser from 'phaser';
+import * as Phaser from 'phaser';
 import * as planck from 'planck';
 import { tuning } from '@/game/tuning';
 import { GameEvents } from '@/game/events';
@@ -55,7 +55,7 @@ interface TransitionPickupSnapshot {
 }
 
 export class GameScene extends Phaser.Scene {
-  private readonly eventBus = new Phaser.Events.EventEmitter();
+  private eventBus!: Phaser.Events.EventEmitter;
   private accumulator = 0;
   private uiMode: UiMode = 'minimal';
   private renderDeltaSeconds = tuning.fixedStepSeconds;
@@ -94,6 +94,18 @@ export class GameScene extends Phaser.Scene {
   }
 
   create(): void {
+    this.eventBus = new Phaser.Events.EventEmitter();
+    this.accumulator = 0;
+    this.uiMode = 'minimal';
+    this.renderDeltaSeconds = tuning.fixedStepSeconds;
+    this.lastMoveIntent = { ...stationaryMoveIntent };
+    this.stageTransitionActive = false;
+    this.stageTransitionPickups = [];
+    this.pickups = new Map<string, Pickup>();
+    this.plants = new Map<string, Plant>();
+    this.enemies = new Map<string, Enemy>();
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.handleSceneShutdown, this);
+
     this.collisions = new CollisionRegistry();
     this.physicsWorld = new PhysicsWorld(this.collisions);
     this.myriapoda = new Myriapoda(this, this.physicsWorld.world, 0, 0);
@@ -157,14 +169,6 @@ export class GameScene extends Phaser.Scene {
       this.renderDeltaSeconds,
     );
     this.render();
-  }
-
-  shutdown(): void {
-    this.eventBus.off(GameEvents.cameraImpulse, this.handleCameraImpulse, this);
-    this.eventBus.off(GameEvents.worldExpanded, this.handleWorldExpanded, this);
-    this.debugToggleKey.off('down', this.cycleUiMode, this);
-    this.inputSystem.destroy();
-    this.worldSystem.destroy();
   }
 
   private fixedUpdate(): void {
@@ -500,5 +504,32 @@ export class GameScene extends Phaser.Scene {
   private stopBodyMotion(body: planck.Body): void {
     body.setLinearVelocity(planck.Vec2(0, 0));
     body.setAngularVelocity(0);
+  }
+
+  private handleSceneShutdown(): void {
+    if (
+      this.scene.isActive('UIScene') ||
+      this.scene.isPaused('UIScene') ||
+      this.scene.isSleeping('UIScene')
+    ) {
+      this.scene.stop('UIScene');
+    }
+
+    this.eventBus.off(GameEvents.cameraImpulse, this.handleCameraImpulse, this);
+    this.eventBus.off(GameEvents.worldExpanded, this.handleWorldExpanded, this);
+    this.eventBus.removeAllListeners();
+    this.debugToggleKey.off('down', this.cycleUiMode, this);
+    this.inputSystem.destroy();
+    this.worldSystem.destroy();
+
+    this.pickups.clear();
+    this.plants.clear();
+    this.enemies.clear();
+    this.stageTransitionPickups = [];
+    this.accumulator = 0;
+    this.uiMode = 'minimal';
+    this.renderDeltaSeconds = tuning.fixedStepSeconds;
+    this.lastMoveIntent = { ...stationaryMoveIntent };
+    this.stageTransitionActive = false;
   }
 }

@@ -1,4 +1,4 @@
-import type Phaser from 'phaser';
+import type * as Phaser from 'phaser';
 import type * as planck from 'planck';
 
 export type PickupTier = 'basic' | 'advanced' | 'rare' | 'harmful';

@@ -1,4 +1,4 @@
-import Phaser from 'phaser';
+import * as Phaser from 'phaser';
 import { getLimbStateProgress } from '@/entities/myriapoda/limbState';
 import { Myriapoda } from '@/entities/myriapoda/Myriapoda';
 import { tuning } from '@/game/tuning';
@@ -54,7 +54,7 @@ export class LimbRenderer {
       const sideHotAlpha = extendWeight * (0.34 + (1 - pulse) * 0.24);
 
       if (glowAlpha > 0.01) {
-        this.graphics.lineStyle(glowWidth, 0xfff3ac, glowAlpha);
+        this.graphics.lineStyle(glowWidth, tuning.limbGlowColor, glowAlpha);
         this.drawLimbPath(root, points);
         this.graphics.lineStyle(hotWidth, 0xffd74f, yellowAlpha);
         this.drawLimbPath(root, points);
@@ -65,15 +65,15 @@ export class LimbRenderer {
         this.drawSideLightning(root, tip, strikeDirection, strikeNormal, -sideOffset, limb.phase + 0.5, extendWeight, sideGlowAlpha, sideHotAlpha);
       }
 
-      this.graphics.lineStyle(baseWidth, 0xaee7c0, 0.65 + attackWeight * 0.12);
+      this.graphics.lineStyle(baseWidth, tuning.limbBaseColor, 0.65 + attackWeight * 0.12);
       this.drawLimbPath(root, points);
       if (glowAlpha > 0.01) {
-        this.graphics.fillStyle(0xfff0ae, 0.18 + glowAlpha * 0.6);
+        this.graphics.fillStyle(tuning.limbGlowColor, 0.18 + glowAlpha * 0.6);
         this.graphics.fillCircle(tip.x, tip.y, 1.8 + attackWeight * 1.1);
         this.graphics.fillStyle(0xffd649, 0.46 + yellowAlpha * 0.82);
         this.graphics.fillCircle(tip.x, tip.y, 1.2 + attackWeight * 0.55);
       }
-      this.graphics.fillStyle(0xd7ffe6, 0.45 + attackWeight * 0.18);
+      this.graphics.fillStyle(tuning.limbBaseColor, 0.45 + attackWeight * 0.18);
       this.graphics.fillCircle(tip.x, tip.y, 1.35 + attackWeight * 0.35);
     }
   }
@@ -142,7 +142,7 @@ export class LimbRenderer {
       );
     }
 
-    this.graphics.lineStyle(2.2 + extendWeight * 0.7, 0xfff1a1, glowAlpha * 0.9);
+    this.graphics.lineStyle(2.2 + extendWeight * 0.7, tuning.limbGlowColor, glowAlpha * 0.9);
     this.graphics.strokePoints(points, false, true);
     this.graphics.lineStyle(1.15 + extendWeight * 0.35, 0xffd232, hotAlpha * 1.08);
     this.graphics.strokePoints(points, false, true);

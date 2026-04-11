@@ -1,4 +1,4 @@
-import Phaser from 'phaser';
+import * as Phaser from 'phaser';
 import * as planck from 'planck';
 import { BodyChain } from '@/entities/myriapoda/BodyChain';
 import { Head } from '@/entities/myriapoda/Head';

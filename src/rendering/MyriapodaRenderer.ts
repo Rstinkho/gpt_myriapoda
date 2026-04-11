@@ -1,29 +1,25 @@
-import Phaser from 'phaser';
+import * as Phaser from 'phaser';
 import { tuning } from '@/game/tuning';
 import { getPickupDefinition } from '@/entities/pickups/PickupRegistry';
 import { getPickupAnimationPhase } from '@/entities/pickups/PickupVisuals';
 import { Myriapoda } from '@/entities/myriapoda/Myriapoda';
+import { MaskedGraphicsLayer } from '@/phaser/MaskedGraphicsLayer';
 import { vec2ToPixels } from '@/physics/PhysicsUtils';
 import { LimbRenderer } from '@/rendering/LimbRenderer';
 import { rotateVector } from '@/utils/math';
 
 export class MyriapodaRenderer {
-  private static readonly bodyCircleScale = 1.3;
-  private static readonly headVisualScale = 1.5;
-  private static readonly mustacheLengthScale = 1.45;
   private readonly graphics: Phaser.GameObjects.Graphics;
-  private readonly stomachParticleGraphics: Phaser.GameObjects.Graphics;
-  private readonly stomachMaskGraphics: Phaser.GameObjects.Graphics;
+  private readonly stomachParticles: MaskedGraphicsLayer;
   private readonly limbRenderer: LimbRenderer;
   private elapsed = 0;
 
   constructor(scene: Phaser.Scene) {
     this.graphics = scene.add.graphics();
     this.graphics.setDepth(5);
-    this.stomachParticleGraphics = scene.add.graphics();
-    this.stomachParticleGraphics.setDepth(6);
-    this.stomachMaskGraphics = scene.add.graphics();
-    this.stomachParticleGraphics.setMask(this.stomachMaskGraphics.createGeometryMask());
+    this.stomachParticles = new MaskedGraphicsLayer(scene, {
+      contentDepth: 6,
+    });
     this.limbRenderer = new LimbRenderer(this.graphics);
   }
 
@@ -42,8 +38,7 @@ export class MyriapodaRenderer {
 
   clear(): void {
     this.graphics.clear();
-    this.stomachParticleGraphics.clear();
-    this.stomachMaskGraphics.clear();
+    this.stomachParticles.clear();
   }
 
   private renderBody(myriapoda: Myriapoda): void {
@@ -73,7 +68,11 @@ export class MyriapodaRenderer {
       const visual = this.getSegmentVisual(segment.radius, isStomach, index);
       this.graphics.fillStyle(visual.fillColor, visual.alpha);
       this.graphics.fillCircle(segment.x, segment.y, visual.radius);
-      this.graphics.lineStyle(Math.max(0.7, 1.35 * scale), isStomach ? 0xffd5e7 : 0xbaf2d7, isStomach ? 0.28 : 0.42);
+      this.graphics.lineStyle(
+        Math.max(0.7, 1.35 * scale),
+        isStomach ? tuning.myriapodaStomachColor : tuning.myriapodaHeadOutlineColor,
+        isStomach ? 0.28 : 0.42,
+      );
       this.graphics.strokeCircle(segment.x, segment.y, visual.radius);
     }
   }
@@ -88,12 +87,12 @@ export class MyriapodaRenderer {
       return {
         radius: stomachRadius,
         alpha: 0.18,
-        fillColor: Phaser.Display.Color.GetColor(255, 164, 192),
+        fillColor: tuning.myriapodaStomachColor,
       };
     }
 
     return {
-      radius: radius * MyriapodaRenderer.bodyCircleScale,
+      radius: radius * tuning.myriapodaBodyCircleScale,
       alpha: tuning.bodyAlpha,
       fillColor: Phaser.Display.Color.GetColor(
         92 + Math.min(90, index * 3),
@@ -113,7 +112,7 @@ export class MyriapodaRenderer {
     const distance = Math.max(0.001, Math.hypot(dx, dy));
     const direction = { x: dx / distance, y: dy / distance };
     const normal = { x: -direction.y, y: direction.x };
-    const headConnectorRadius = tuning.headRadius * MyriapodaRenderer.headVisualScale * 0.72;
+    const headConnectorRadius = tuning.headRadius * tuning.myriapodaHeadVisualScale * 0.72;
     const headBoundary = {
       x: headPosition.x + direction.x * headConnectorRadius,
       y: headPosition.y + direction.y * headConnectorRadius,
@@ -132,7 +131,11 @@ export class MyriapodaRenderer {
 
     this.graphics.fillStyle(segmentVisual.fillColor, segmentVisual.alpha + 0.06);
     this.graphics.fillPoints(polygon, true);
-    this.graphics.lineStyle(Math.max(0.5, tuning.headRadius / 11), 0xbaf2d7, 0.18);
+    this.graphics.lineStyle(
+      Math.max(0.5, tuning.headRadius / 11),
+      tuning.myriapodaHeadOutlineColor,
+      0.18,
+    );
     this.graphics.strokePoints(polygon, true, true);
   }
 
@@ -161,7 +164,11 @@ export class MyriapodaRenderer {
 
     this.graphics.fillStyle(fromVisual.fillColor, Math.min(fromVisual.alpha, toVisual.alpha) + 0.04);
     this.graphics.fillPoints(polygon, true);
-    this.graphics.lineStyle(Math.max(0.5, tuning.headRadius / 11), 0xbaf2d7, 0.18);
+    this.graphics.lineStyle(
+      Math.max(0.5, tuning.headRadius / 11),
+      tuning.myriapodaHeadOutlineColor,
+      0.18,
+    );
     this.graphics.strokePoints(polygon, true, true);
   }
 
@@ -180,24 +187,25 @@ export class MyriapodaRenderer {
     const stomachAnchor = myriapoda.stomach.getAnchor();
     const chamberRadius = tuning.stomachRadiusMeters * tuning.pixelsPerMeter;
     const scale = tuning.headRadius / 11;
-    this.graphics.fillStyle(0xffaecd, 0.07);
+    this.graphics.fillStyle(tuning.myriapodaStomachColor, 0.07);
     this.graphics.fillCircle(stomachAnchor.x, stomachAnchor.y, chamberRadius);
     this.graphics.lineStyle(Math.max(1.1, 2.6 * scale), 0xffebf3, 0.56);
     this.graphics.strokeCircle(stomachAnchor.x, stomachAnchor.y, chamberRadius);
     this.graphics.lineStyle(Math.max(0.55, 1.1 * scale), 0xff97bc, 0.42);
     this.graphics.strokeCircle(stomachAnchor.x, stomachAnchor.y, chamberRadius * 0.92);
 
-    this.stomachMaskGraphics.fillStyle(0xffffff, 1);
-    this.stomachMaskGraphics.fillCircle(
-      stomachAnchor.x,
-      stomachAnchor.y,
-      chamberRadius - tuning.stomachContainmentMarginMeters * tuning.pixelsPerMeter,
-    );
+    this.stomachParticles.drawMask((maskGraphics) => {
+      maskGraphics.fillCircle(
+        stomachAnchor.x,
+        stomachAnchor.y,
+        chamberRadius - tuning.stomachContainmentMarginMeters * tuning.pixelsPerMeter,
+      );
+    });
 
     for (const particle of myriapoda.stomach.particles) {
       const local = vec2ToPixels(particle.body.getPosition());
       getPickupDefinition(particle.resourceId).drawParticle(
-        this.stomachParticleGraphics,
+        this.stomachParticles.graphics,
         {
           x: stomachAnchor.x + local.x,
           y: stomachAnchor.y + local.y,
@@ -211,7 +219,7 @@ export class MyriapodaRenderer {
     }
 
     for (const parasite of myriapoda.stomach.getUiParasiteSnapshots()) {
-      getPickupDefinition('parasite').drawParticle(this.stomachParticleGraphics, {
+      getPickupDefinition('parasite').drawParticle(this.stomachParticles.graphics, {
         x: stomachAnchor.x + parasite.localX * chamberRadius,
         y: stomachAnchor.y + parasite.localY * chamberRadius,
         radius: chamberRadius * parasite.radius,
@@ -245,16 +253,16 @@ export class MyriapodaRenderer {
     this.graphics.strokePoints(tailPoints, false, true);
     this.graphics.lineStyle(1.8, 0x9eddb5, 0.74);
     this.graphics.strokePoints(tailPoints, false, true);
-    this.graphics.fillStyle(0xaee7c0, 0.55);
+    this.graphics.fillStyle(tuning.myriapodaHeadColor, 0.55);
     this.graphics.fillCircle(tailTip.x, tailTip.y, tuning.tailRadiusPx);
   }
 
   private renderHead(myriapoda: Myriapoda, x: number, y: number, angle: number): void {
     const blinkPhase = (this.elapsed + 0.2) % 4.2;
     const blink = blinkPhase > 3.85 ? Math.max(0.12, 1 - (blinkPhase - 3.85) * 10) : 1;
-    const scale = (tuning.headRadius / 11) * MyriapodaRenderer.headVisualScale;
-    const headWidth = tuning.headRadius * 2.05 * MyriapodaRenderer.headVisualScale;
-    const headHeight = tuning.headRadius * 1.8 * MyriapodaRenderer.headVisualScale;
+    const scale = (tuning.headRadius / 11) * tuning.myriapodaHeadVisualScale;
+    const headWidth = tuning.headRadius * 2.05 * tuning.myriapodaHeadVisualScale;
+    const headHeight = tuning.headRadius * 1.8 * tuning.myriapodaHeadVisualScale;
     const vacuum = myriapoda.vacuum;
     const consumePulse =
       tuning.vacuumConsumePulseSeconds > 0
@@ -262,8 +270,12 @@ export class MyriapodaRenderer {
         : 0;
     const mouthOpen = Math.min(1, vacuum.suctionAmount + consumePulse * tuning.mouthConsumeBoost);
 
-    this.graphics.fillStyle(0xaee7c0, 0.92);
-    this.graphics.lineStyle(Math.max(0.7, 1.4 * scale), 0xe6fff1, 0.5);
+    this.graphics.fillStyle(tuning.myriapodaHeadColor, 0.92);
+    this.graphics.lineStyle(
+      Math.max(0.7, 1.4 * scale),
+      tuning.myriapodaHeadOutlineColor,
+      0.5,
+    );
     this.graphics.fillEllipse(x, y, headWidth, headHeight);
     this.graphics.strokeEllipse(x, y, headWidth, headHeight);
 
@@ -499,7 +511,7 @@ export class MyriapodaRenderer {
   }
 
   private drawMustache(x: number, y: number, angle: number, side: -1 | 1, scale: number): void {
-    const reach = MyriapodaRenderer.mustacheLengthScale;
+    const reach = tuning.myriapodaMustacheLengthScale;
     const base = rotateVector(5.1 * scale, 2.4 * side * scale, angle);
     const mid = rotateVector(10.6 * scale * reach, 5.6 * side * scale, angle);
     const tip = rotateVector(13.7 * scale * reach, 7.1 * side * scale, angle);

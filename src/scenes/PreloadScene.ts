@@ -1,4 +1,4 @@
-import Phaser from 'phaser';
+import * as Phaser from 'phaser';
 import { textureKeys } from '@/game/assets';
 import { pickupDefinitions } from '@/entities/pickups';
 

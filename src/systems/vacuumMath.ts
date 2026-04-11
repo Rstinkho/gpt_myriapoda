@@ -10,9 +10,11 @@ export function resolveVacuumPull(
   head: { x: number; y: number },
   absorbRadius: number,
   coneLength: number,
+  pickupRadius = 0,
 ): VacuumPullResult {
   const dist = distance(pickup, head);
-  if (dist <= absorbRadius) {
+  const effectiveAbsorbRadius = Math.max(absorbRadius, pickupRadius);
+  if (dist <= effectiveAbsorbRadius) {
     return {
       shouldAbsorb: true,
       forceScale: 0,

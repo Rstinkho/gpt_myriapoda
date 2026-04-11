@@ -1,4 +1,4 @@
-import Phaser from 'phaser';
+import * as Phaser from 'phaser';
 import type { InputSnapshot } from '@/game/types';
 import { normalize } from '@/utils/math';
 

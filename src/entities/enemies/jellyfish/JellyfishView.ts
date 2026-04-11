@@ -1,9 +1,10 @@
-import Phaser from 'phaser';
+import * as Phaser from 'phaser';
 import type * as planck from 'planck';
 import { tuning } from '@/game/tuning';
 import { vec2ToPixels } from '@/physics/PhysicsUtils';
 import { clamp } from '@/utils/math';
 import { getJellyfishPhaseSeed } from '@/entities/enemies/jellyfish/JellyfishAI';
+import { jellyfishDefinition } from '@/entities/enemies/jellyfish/definition';
 
 export class JellyfishView {
   private readonly graphics: Phaser.GameObjects.Graphics;
@@ -22,51 +23,91 @@ export class JellyfishView {
     const velocity = body.getLinearVelocity();
     const speedPx = Math.hypot(velocity.x, velocity.y) * tuning.pixelsPerMeter;
     const speedRatio = clamp(speedPx / (tuning.enemyMaxSpeed * tuning.pixelsPerMeter), 0, 1);
-    const pulseWave = 0.5 + 0.5 * Math.sin(this.elapsed * 3.2 + this.phaseSeed);
+    const pulseWave =
+      0.5 + 0.5 * Math.sin(this.elapsed * jellyfishDefinition.pulseSpeed + this.phaseSeed);
     const bellPulse = 0.45 + pulseWave * 0.35 + speedRatio * 0.2;
-    const bob = Math.sin(this.elapsed * 2.3 + this.phaseSeed) * 1.8;
-    const wobble = Math.sin(this.elapsed * 1.7 + this.phaseSeed) * 0.08;
-    const bellWidth = tuning.enemyDisplaySize * (0.96 + bellPulse * 0.12);
-    const bellHeight = tuning.enemyDisplaySize * (0.84 - bellPulse * 0.12);
+    const bob =
+      Math.sin(this.elapsed * jellyfishDefinition.bobSpeed + this.phaseSeed) *
+      jellyfishDefinition.bobAmplitudePx;
+    const wobble =
+      Math.sin(this.elapsed * 1.7 + this.phaseSeed) * jellyfishDefinition.wobbleFactor;
+    const bellWidth =
+      tuning.enemyDisplaySize *
+      (jellyfishDefinition.bellWidthBase + bellPulse * jellyfishDefinition.bellWidthPulse);
+    const bellHeight =
+      tuning.enemyDisplaySize *
+      (jellyfishDefinition.bellHeightBase - bellPulse * jellyfishDefinition.bellHeightPulse);
     const innerWidth = bellWidth * 0.62;
     const innerHeight = bellHeight * 0.48;
     const skirtY = bellHeight * 0.18;
     const tentacleBaseY = bellHeight * 0.22;
-    const tentacleLength = tuning.enemyDisplaySize * (0.64 + speedRatio * 0.12);
-    const tentacleCount = 6;
+    const tentacleLength =
+      tuning.enemyDisplaySize *
+      (jellyfishDefinition.tentacleLengthBase +
+        speedRatio * jellyfishDefinition.tentacleLengthSpeedBonus);
+    const tentacleCount = jellyfishDefinition.tentacleCount;
 
     this.graphics.setPosition(position.x, position.y + bob);
     this.graphics.setRotation(wobble + velocity.x * 0.05);
     this.graphics.clear();
 
-    this.graphics.fillStyle(0xff6a84, 0.14);
+    this.graphics.fillStyle(jellyfishDefinition.auraColor, jellyfishDefinition.auraAlpha);
     this.graphics.fillEllipse(0, -2, bellWidth * 1.38, bellHeight * 1.18);
-    this.graphics.fillStyle(0xff9cae, 0.1);
+    this.graphics.fillStyle(jellyfishDefinition.bloomColor, jellyfishDefinition.bloomAlpha);
     this.graphics.fillEllipse(0, -3, bellWidth * 1.66, bellHeight * 1.34);
 
-    const tentacleSpacing = bellWidth * 0.12;
+    const tentacleSpacing = bellWidth * jellyfishDefinition.tentacleSpacingMultiplier;
     const startX = -((tentacleCount - 1) * tentacleSpacing) * 0.5;
     for (let index = 0; index < tentacleCount; index += 1) {
       const x = startX + index * tentacleSpacing;
-      const swayA = Math.sin(this.elapsed * 4.2 + this.phaseSeed + index * 0.45) * (2.4 + speedRatio * 1.8);
-      const swayB = Math.sin(this.elapsed * 5.8 + this.phaseSeed * 1.3 + index * 0.3) * (1.8 + speedRatio * 1.2);
+      const swayA =
+        Math.sin(
+          this.elapsed * jellyfishDefinition.tentacleSwaySpeedA +
+            this.phaseSeed +
+            index * 0.45,
+        ) *
+        (jellyfishDefinition.tentacleSwayBaseA +
+          speedRatio * jellyfishDefinition.tentacleSwaySpeedBonusA);
+      const swayB =
+        Math.sin(
+          this.elapsed * jellyfishDefinition.tentacleSwaySpeedB +
+            this.phaseSeed * 1.3 +
+            index * 0.3,
+        ) *
+        (jellyfishDefinition.tentacleSwayBaseB +
+          speedRatio * jellyfishDefinition.tentacleSwaySpeedBonusB);
       const points = [
         new Phaser.Math.Vector2(x, tentacleBaseY),
         new Phaser.Math.Vector2(x + swayA, tentacleBaseY + tentacleLength * 0.36),
         new Phaser.Math.Vector2(x + swayB, tentacleBaseY + tentacleLength * 0.74),
         new Phaser.Math.Vector2(x + swayB * 0.45, tentacleBaseY + tentacleLength),
       ];
-      this.graphics.lineStyle(2.6, 0xffc2d2, 0.18);
+      this.graphics.lineStyle(
+        2.6,
+        jellyfishDefinition.tentacleGlowColor,
+        jellyfishDefinition.tentacleGlowAlpha,
+      );
       this.graphics.strokePoints(points, false, true);
-      this.graphics.lineStyle(1.25, 0xff7c96, 0.72);
+      this.graphics.lineStyle(
+        1.25,
+        jellyfishDefinition.tentacleColor,
+        jellyfishDefinition.tentacleAlpha,
+      );
       this.graphics.strokePoints(points, false, true);
     }
 
-    this.graphics.fillStyle(0xff5b78, 0.9);
+    this.graphics.fillStyle(jellyfishDefinition.bellColor, jellyfishDefinition.bellAlpha);
     this.graphics.fillEllipse(0, -4, bellWidth, bellHeight);
-    this.graphics.fillStyle(0xff9eb6, 0.28);
+    this.graphics.fillStyle(
+      jellyfishDefinition.bellHighlightColor,
+      jellyfishDefinition.bellHighlightAlpha,
+    );
     this.graphics.fillEllipse(-bellWidth * 0.08, -bellHeight * 0.24, innerWidth, innerHeight);
-    this.graphics.lineStyle(1.8, 0xffd4de, 0.32);
+    this.graphics.lineStyle(
+      1.8,
+      jellyfishDefinition.bellOutlineColor,
+      jellyfishDefinition.bellOutlineAlpha,
+    );
     this.graphics.strokeEllipse(0, -4, bellWidth, bellHeight);
 
     const skirtPoints = [
@@ -76,7 +117,11 @@ export class JellyfishView {
       new Phaser.Math.Vector2(bellWidth * 0.22, skirtY + 2.8 + pulseWave),
       new Phaser.Math.Vector2(bellWidth * 0.42, skirtY),
     ];
-    this.graphics.lineStyle(2.4, 0x99293b, 0.76);
+    this.graphics.lineStyle(
+      2.4,
+      jellyfishDefinition.skirtColor,
+      jellyfishDefinition.skirtAlpha,
+    );
     this.graphics.strokePoints(skirtPoints, false, true);
   }
 
