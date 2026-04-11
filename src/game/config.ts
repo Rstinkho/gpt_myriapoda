@@ -6,7 +6,7 @@ import { UIScene } from '@/scenes/UIScene';
 
 export function createPhaserConfig(): Phaser.Types.Core.GameConfig {
   return {
-    type: Phaser.AUTO,
+    type: Phaser.WEBGL,
     parent: 'app',
     backgroundColor: '#061015',
     scale: {
@@ -22,6 +22,8 @@ export function createPhaserConfig(): Phaser.Types.Core.GameConfig {
     render: {
       antialias: true,
       pixelArt: false,
+      selfShadow: true,
+      powerPreference: 'high-performance',
     },
   };
 }

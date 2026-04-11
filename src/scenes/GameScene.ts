@@ -520,6 +520,7 @@ export class GameScene extends Phaser.Scene {
     this.eventBus.removeAllListeners();
     this.debugToggleKey.off('down', this.cycleUiMode, this);
     this.inputSystem.destroy();
+    this.myriapodaRenderer.destroy();
     this.worldSystem.destroy();
 
     this.pickups.clear();

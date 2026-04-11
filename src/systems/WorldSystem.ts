@@ -88,6 +88,7 @@ export class WorldSystem {
   destroy(): void {
     this.eventBus.off(GameEvents.enemyKilled, this.handleEnemyKilled, this);
     this.eventBus.off(GameEvents.pickupAbsorbed, this.handlePickupAbsorbed, this);
+    this.renderer.destroy();
   }
 
   setSpawningSuppressed(suppressed: boolean): void {

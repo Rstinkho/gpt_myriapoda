@@ -3,6 +3,7 @@ import { tuning } from '@/game/tuning';
 import type {
   HudSnapshot,
   NutrientPickupTier,
+  PickupPalette,
   UiStomachParticleSnapshot,
   UiStomachParasiteSnapshot,
 } from '@/game/types';
@@ -14,9 +15,16 @@ import {
 import {
   applyPickupSpriteAnimation,
   getPickupAnimationPhase,
+  samplePickupAnimation,
 } from '@/entities/pickups/PickupVisuals';
+import { GraphicsMaskController } from '@/phaser/GraphicsMaskController';
 import { MaskedGraphicsLayer } from '@/phaser/MaskedGraphicsLayer';
 import { getPickupCountEntries, showsStatusPanel } from '@/ui/uiState';
+
+const chamberGradientDepth = 1000.75;
+const chamberNoiseDepth = 1000.78;
+const chamberGlowDepth = 1001.02;
+const chamberNoiseTextureSize = 256;
 
 interface PanelMetrics {
   x: number;
@@ -45,29 +53,68 @@ function toCssHex(color: number): string {
 export class StatusPanel {
   private readonly panelGraphics: Phaser.GameObjects.Graphics;
   private readonly meterGraphics: Phaser.GameObjects.Graphics;
+  private readonly chamberGradient: Phaser.GameObjects.Gradient;
+  private readonly chamberNoiseQuad: Phaser.GameObjects.NoiseSimplex2D;
+  private readonly chamberNoiseLayer: Phaser.GameObjects.Image;
   private readonly chamberGraphics: Phaser.GameObjects.Graphics;
+  private readonly chamberGlowGraphics: Phaser.GameObjects.Graphics;
+  private readonly chamberMask: GraphicsMaskController;
   private readonly stomachParticles: MaskedGraphicsLayer;
   private readonly stageLabel: Phaser.GameObjects.Text;
   private readonly stageValue: Phaser.GameObjects.Text;
   private readonly limbLabel: Phaser.GameObjects.Text;
   private readonly readyBadge: Phaser.GameObjects.Text;
-  private readonly segmentLabel: Phaser.GameObjects.Text;
-  private readonly segmentValue: Phaser.GameObjects.Text;
+  /** Single line: "SEGMENT COUNT  N" — one Text so label + number cannot split across baselines. */
+  private readonly segmentLine: Phaser.GameObjects.Text;
   private readonly counterIcons: Record<NutrientPickupTier, Phaser.GameObjects.Image>;
   private readonly counterTexts: Record<NutrientPickupTier, Phaser.GameObjects.Text>;
   private readonly counterIconPhases: Record<NutrientPickupTier, number>;
+  private readonly chamberNoiseTextureKey: string;
   private metrics?: PanelMetrics;
   private snapshot?: HudSnapshot;
 
   constructor(private readonly scene: Phaser.Scene) {
     const accentColor = toCssHex(tuning.uiPanelAccentColor);
     this.panelGraphics = scene.add.graphics().setScrollFactor(0).setDepth(1000);
+    this.chamberGradient = scene.add.gradient(
+      this.createChamberGradientConfig(),
+      0,
+      0,
+      128,
+      128,
+    );
+    this.chamberGradient.setScrollFactor(0).setDepth(chamberGradientDepth).setOrigin(0.5);
+    this.chamberNoiseTextureKey = `status-chamber-noise-${Math.floor(Math.random() * 1_000_000)}`;
+    this.chamberNoiseQuad = scene.add.noisesimplex2d(
+      this.createChamberNoiseConfig(),
+      chamberNoiseTextureSize * 0.5,
+      chamberNoiseTextureSize * 0.5,
+      chamberNoiseTextureSize,
+      chamberNoiseTextureSize,
+    );
+    this.chamberNoiseQuad.setRenderToTexture(this.chamberNoiseTextureKey);
+    this.chamberNoiseQuad.setVisible(false);
+    this.chamberNoiseLayer = scene.add.image(0, 0, this.chamberNoiseTextureKey);
+    this.chamberNoiseLayer.setScrollFactor(0).setDepth(chamberNoiseDepth);
+    this.chamberNoiseLayer.setAlpha(tuning.statusFxChamberNoiseAlpha);
     this.meterGraphics = scene.add.graphics().setScrollFactor(0).setDepth(1001);
     this.chamberGraphics = scene.add.graphics().setScrollFactor(0).setDepth(1001);
+    this.chamberGlowGraphics = scene.add.graphics().setScrollFactor(0).setDepth(chamberGlowDepth);
+    this.chamberMask = new GraphicsMaskController(scene, {
+      maskDepth: 999,
+      scrollFactor: 0,
+      viewCamera: scene.cameras.main,
+      viewTransform: 'local',
+    });
+    this.chamberMask.attach(this.chamberGradient);
+    this.chamberMask.attach(this.chamberNoiseLayer);
+    this.chamberMask.attach(this.chamberGlowGraphics);
     this.stomachParticles = new MaskedGraphicsLayer(scene, {
       contentDepth: 1002,
       maskDepth: 999,
       scrollFactor: 0,
+      blurRadius: tuning.statusFxChamberMaskBlurRadius,
+      viewTransform: 'local',
     });
 
     this.stageLabel = scene.add.text(0, 0, 'STAGE', {
@@ -104,22 +151,14 @@ export class StatusPanel {
     });
     this.readyBadge.setOrigin(1, 0).setScrollFactor(0).setDepth(1002);
 
-    this.segmentLabel = scene.add.text(0, 0, 'SEGMENT COUNT', {
+    this.segmentLine = scene.add.text(0, 0, 'SEGMENT COUNT  0', {
       fontFamily: 'Trebuchet MS',
-      fontSize: '14px',
+      fontSize: '16px',
       color: accentColor,
-      letterSpacing: 1.2,
+      letterSpacing: 1,
     });
-    this.segmentLabel.setScrollFactor(0).setDepth(1002);
-
-    this.segmentValue = scene.add.text(0, 0, '0', {
-      fontFamily: 'Georgia',
-      fontSize: '22px',
-      color: '#f2fbff',
-      stroke: '#061014',
-      strokeThickness: 5,
-    });
-    this.segmentValue.setScrollFactor(0).setDepth(1002);
+    this.segmentLine.setScrollFactor(0).setDepth(1002);
+    this.segmentLine.setOrigin(0, 0.5);
 
     this.counterIcons = {
       basic: scene.add.image(0, 0, getDefaultPickupDefinition('basic').textureKey),
@@ -200,8 +239,7 @@ export class StatusPanel {
     this.stageValue.setPosition(x + 24, y + 44);
     this.limbLabel.setPosition(x + 24, y + 126);
     this.readyBadge.setPosition(x + width - 24, y + 122);
-    this.segmentLabel.setPosition(x + 24, y + 188);
-    this.segmentValue.setPosition(x + 176, y + 184);
+    this.segmentLine.setPosition(x + 24, y + 198);
 
     const counterEntries = getPickupCountEntries({
       basic: 0,
@@ -228,15 +266,12 @@ export class StatusPanel {
     const visible = showsStatusPanel(snapshot.uiMode);
     this.setVisible(visible);
     if (!visible) {
-      this.panelGraphics.clear();
-      this.meterGraphics.clear();
-      this.chamberGraphics.clear();
-      this.stomachParticles.clear();
+      this.clearVisuals();
       return;
     }
 
     this.stageValue.setText(String(snapshot.stage));
-    this.segmentValue.setText(String(snapshot.segments));
+    this.segmentLine.setText(`SEGMENT COUNT  ${snapshot.segments}`);
     this.readyBadge.setVisible(snapshot.limbReady);
     for (const entry of getPickupCountEntries(snapshot.pickupCounts)) {
       this.counterTexts[entry.tier].setText(String(entry.count));
@@ -253,10 +288,8 @@ export class StatusPanel {
     const snapshot = this.snapshot;
     const elapsedSeconds = this.scene.time.now / 1000;
 
-    this.panelGraphics.clear();
-    this.meterGraphics.clear();
-    this.chamberGraphics.clear();
-    this.stomachParticles.clear();
+    this.clearVisuals();
+    this.drawPanelBackground(metrics, snapshot.parasiteAlertProgress);
 
     this.meterGraphics.fillStyle(0x0b1518, 0.46);
     this.meterGraphics.fillRoundedRect(
@@ -332,8 +365,46 @@ export class StatusPanel {
     const arcRadius = (wallRight - wallLeft) * 0.5;
     const arcCenterX = (wallLeft + wallRight) * 0.5;
     const arcCenterY = bottomY - arcRadius;
+    const elapsedSeconds = this.scene.time.now / 1000;
 
-    this.chamberGraphics.fillStyle(tuning.uiPanelAccentColor, 0.08);
+    this.layoutChamberFxLayers(metrics);
+    this.animateChamberFxLayers(elapsedSeconds);
+    this.chamberMask.drawMask((maskGraphics) => {
+      this.fillUInterior(
+        metrics.chamberInnerX,
+        metrics.chamberInnerX + metrics.chamberInnerWidth,
+        metrics.chamberInnerY,
+        metrics.chamberInnerY + metrics.chamberInnerHeight - 8,
+        maskGraphics,
+      );
+    });
+
+    this.chamberGlowGraphics.fillStyle(
+      tuning.statusFxChamberGradientBottomColor,
+      0.04 + tuning.statusFxChamberGlowAlpha * 0.45,
+    );
+    this.fillUInterior(
+      metrics.chamberInnerX,
+      metrics.chamberInnerX + metrics.chamberInnerWidth,
+      metrics.chamberInnerY,
+      metrics.chamberInnerY + metrics.chamberInnerHeight - 8,
+      this.chamberGlowGraphics,
+    );
+    if (parasiteAlertProgress > 0) {
+      this.chamberGlowGraphics.fillStyle(
+        tuning.uiDangerColor,
+        parasiteAlertProgress * tuning.statusFxChamberDangerWashAlpha,
+      );
+      this.fillUInterior(
+        metrics.chamberInnerX,
+        metrics.chamberInnerX + metrics.chamberInnerWidth,
+        metrics.chamberInnerY,
+        metrics.chamberInnerY + metrics.chamberInnerHeight - 8,
+        this.chamberGlowGraphics,
+      );
+    }
+
+    this.chamberGraphics.fillStyle(tuning.uiPanelAccentColor, 0.05);
     this.fillUInterior(
       metrics.chamberInnerX,
       metrics.chamberInnerX + metrics.chamberInnerWidth,
@@ -458,18 +529,29 @@ export class StatusPanel {
             Math.min(metrics.chamberInnerWidth, metrics.chamberInnerHeight) *
             0.54,
         );
-      getPickupDefinition(particle.resourceId).drawParticle(
-        this.stomachParticles.graphics,
-        {
-          x,
-          y,
-          radius,
-          angle: particle.angle,
-          elapsedSeconds,
-          animationPhase: getPickupAnimationPhase(particle.id),
-          alpha: 0.96,
-        },
+      const definition = getPickupDefinition(particle.resourceId);
+      const animationPhase = getPickupAnimationPhase(particle.id);
+      const animation = samplePickupAnimation(
+        definition.animationProfile,
+        elapsedSeconds,
+        animationPhase,
       );
+      this.drawChamberParticleGlow(
+        x,
+        y,
+        radius,
+        definition.palette,
+        animation.glowAlpha,
+      );
+      definition.drawParticle(this.stomachParticles.graphics, {
+        x,
+        y,
+        radius,
+        angle: particle.angle,
+        elapsedSeconds,
+        animationPhase,
+        alpha: 0.96,
+      });
     }
   }
 
@@ -492,32 +574,237 @@ export class StatusPanel {
             Math.min(metrics.chamberInnerWidth, metrics.chamberInnerHeight) *
             0.54,
         );
-      getPickupDefinition('parasite').drawParticle(this.stomachParticles.graphics, {
+      const definition = getPickupDefinition('parasite');
+      const animationPhase = getPickupAnimationPhase(parasite.id);
+      const animation = samplePickupAnimation(
+        definition.animationProfile,
+        elapsedSeconds,
+        animationPhase,
+      );
+      this.drawChamberParticleGlow(
+        x,
+        y,
+        radius,
+        definition.palette,
+        animation.glowAlpha,
+        1.2,
+      );
+      definition.drawParticle(this.stomachParticles.graphics, {
         x,
         y,
         radius,
         angle: parasite.angle,
         elapsedSeconds,
-        animationPhase: getPickupAnimationPhase(parasite.id),
+        animationPhase,
         alpha: 0.98,
       });
+    }
+  }
+
+  destroy(): void {
+    this.chamberMask.destroy();
+    this.stomachParticles.destroy();
+    this.panelGraphics.destroy();
+    this.meterGraphics.destroy();
+    this.chamberGradient.destroy();
+    this.chamberNoiseLayer.destroy();
+    this.chamberNoiseQuad.destroy();
+    this.chamberGraphics.destroy();
+    this.chamberGlowGraphics.destroy();
+    this.stageLabel.destroy();
+    this.stageValue.destroy();
+    this.limbLabel.destroy();
+    this.readyBadge.destroy();
+    this.segmentLine.destroy();
+    for (const tier of nutrientPickupTiers) {
+      this.counterIcons[tier].destroy();
+      this.counterTexts[tier].destroy();
+    }
+    if (this.scene.textures.exists(this.chamberNoiseTextureKey)) {
+      this.scene.textures.remove(this.chamberNoiseTextureKey);
     }
   }
 
   private setVisible(visible: boolean): void {
     this.panelGraphics.setVisible(visible);
     this.meterGraphics.setVisible(visible);
+    this.chamberGradient.setVisible(visible);
+    this.chamberNoiseLayer.setVisible(visible);
     this.chamberGraphics.setVisible(visible);
+    this.chamberGlowGraphics.setVisible(visible);
     this.stomachParticles.setVisible(visible);
     this.stageLabel.setVisible(visible);
     this.stageValue.setVisible(visible);
     this.limbLabel.setVisible(visible);
     this.readyBadge.setVisible(visible && (this.snapshot?.limbReady ?? false));
-    this.segmentLabel.setVisible(visible);
-    this.segmentValue.setVisible(visible);
+    this.segmentLine.setVisible(visible);
     for (const tier of nutrientPickupTiers) {
       this.counterIcons[tier].setVisible(visible);
       this.counterTexts[tier].setVisible(visible);
     }
+  }
+
+  private clearVisuals(): void {
+    this.panelGraphics.clear();
+    this.meterGraphics.clear();
+    this.chamberGraphics.clear();
+    this.chamberGlowGraphics.clear();
+    this.chamberMask.clear();
+    this.stomachParticles.clear();
+  }
+
+  private drawPanelBackground(
+    metrics: PanelMetrics,
+    parasiteAlertProgress: number,
+  ): void {
+    const pulse = 0.5 + 0.5 * Math.sin(this.scene.time.now / 600);
+    this.panelGraphics.fillStyle(0x061117, 0.8);
+    this.panelGraphics.fillRoundedRect(
+      metrics.x,
+      metrics.y,
+      metrics.width,
+      metrics.height,
+      28,
+    );
+    this.panelGraphics.fillStyle(0xffffff, 0.02 + pulse * 0.01);
+    this.panelGraphics.fillRoundedRect(
+      metrics.x + 2,
+      metrics.y + 2,
+      metrics.width - 4,
+      metrics.height - 4,
+      26,
+    );
+    if (parasiteAlertProgress > 0) {
+      this.panelGraphics.fillStyle(
+        tuning.uiDangerColor,
+        0.05 + parasiteAlertProgress * 0.08,
+      );
+      this.panelGraphics.fillRoundedRect(
+        metrics.x + 10,
+        metrics.y + 10,
+        metrics.width - 20,
+        metrics.height - 20,
+        24,
+      );
+    }
+    this.panelGraphics.lineStyle(1.2, tuning.uiPanelAccentColor, 0.2);
+    this.panelGraphics.strokeRoundedRect(
+      metrics.x,
+      metrics.y,
+      metrics.width,
+      metrics.height,
+      28,
+    );
+    this.panelGraphics.lineStyle(1, 0xffffff, 0.05 + pulse * 0.02);
+    this.panelGraphics.strokeRoundedRect(
+      metrics.x + 2,
+      metrics.y + 2,
+      metrics.width - 4,
+      metrics.height - 4,
+      26,
+    );
+    this.panelGraphics.lineStyle(1, tuning.uiPanelAccentColor, 0.12);
+    this.panelGraphics.lineBetween(
+      metrics.x + 24,
+      metrics.chamberY - 18,
+      metrics.x + metrics.width - 24,
+      metrics.chamberY - 18,
+    );
+  }
+
+  private drawChamberParticleGlow(
+    x: number,
+    y: number,
+    radius: number,
+    palette: PickupPalette,
+    glowAlpha: number,
+    intensity = 1,
+  ): void {
+    const glowColor = palette.glow ?? palette.highlight;
+    const alpha =
+      tuning.statusFxChamberParticleGlowAlpha * intensity * (0.45 + glowAlpha * 0.9);
+    this.chamberGlowGraphics.fillStyle(glowColor, alpha);
+    this.chamberGlowGraphics.fillCircle(x, y, radius * 1.85);
+    this.chamberGlowGraphics.fillStyle(palette.highlight, alpha * 0.5);
+    this.chamberGlowGraphics.fillCircle(x, y, radius * 1.08);
+  }
+
+  private createChamberGradientConfig(): Phaser.Types.GameObjects.Gradient.GradientQuadConfig {
+    return {
+      bands: [
+        {
+          colorStart: this.toRgbaColor(
+            tuning.statusFxChamberGradientTopColor,
+            tuning.statusFxChamberGradientAlpha,
+          ),
+          colorEnd: this.toRgbaColor(
+            tuning.statusFxChamberGradientBottomColor,
+            tuning.statusFxChamberGradientAlpha,
+          ),
+          start: 0,
+          end: 1,
+          interpolation: 2,
+        },
+      ],
+      start: { x: 0.5, y: 0 },
+      shape: { x: 0, y: 1 },
+      shapeMode: 0,
+      repeatMode: 0,
+      dither: true,
+    };
+  }
+
+  private createChamberNoiseConfig(): Phaser.Types.GameObjects.NoiseSimplex2D.NoiseSimplex2DQuadConfig {
+    return {
+      noiseCells: [
+        tuning.statusFxChamberNoiseCellsX,
+        tuning.statusFxChamberNoiseCellsY,
+      ],
+      noiseIterations: tuning.statusFxChamberNoiseIterations,
+      noiseWarpAmount: tuning.statusFxChamberNoiseWarpAmount,
+      noiseColorStart: this.toRgbaColor(
+        tuning.statusFxChamberGradientTopColor,
+        tuning.statusFxChamberNoiseAlpha,
+      ),
+      noiseColorEnd: this.toRgbaColor(
+        tuning.statusFxChamberGradientBottomColor,
+        tuning.statusFxChamberNoiseAlpha,
+      ),
+    };
+  }
+
+  private layoutChamberFxLayers(metrics: PanelMetrics): void {
+    const padding = Math.max(18, tuning.statusFxChamberMaskBlurRadius * 3);
+    const width = Math.max(64, metrics.chamberInnerWidth + padding);
+    const height = Math.max(64, metrics.chamberInnerHeight + padding);
+    const centerX = metrics.chamberInnerX + metrics.chamberInnerWidth * 0.5;
+    const centerY = metrics.chamberInnerY + metrics.chamberInnerHeight * 0.52;
+
+    this.chamberGradient.setPosition(centerX, centerY);
+    this.chamberGradient.setSize(width, height);
+    this.chamberGradient.setDisplaySize(width, height);
+    this.chamberNoiseLayer.setPosition(centerX, centerY);
+    this.chamberNoiseLayer.setDisplaySize(width, height);
+  }
+
+  private animateChamberFxLayers(elapsedSeconds: number): void {
+    this.chamberGradient.offset =
+      Math.sin(elapsedSeconds * tuning.statusFxChamberNoiseFlowSpeed * 0.8) * 0.05;
+    this.chamberNoiseQuad.noiseFlow =
+      elapsedSeconds * tuning.statusFxChamberNoiseFlowSpeed;
+    this.chamberNoiseQuad.noiseOffset = [
+      elapsedSeconds * tuning.statusFxChamberNoiseOffsetSpeedX,
+      elapsedSeconds * tuning.statusFxChamberNoiseOffsetSpeedY,
+    ];
+    this.chamberNoiseQuad.renderImmediate();
+  }
+
+  private toRgbaColor(color: number, alpha: number): [number, number, number, number] {
+    return [
+      ((color >> 16) & 0xff) / 255,
+      ((color >> 8) & 0xff) / 255,
+      (color & 0xff) / 255,
+      Phaser.Math.Clamp(alpha, 0, 1),
+    ];
   }
 }

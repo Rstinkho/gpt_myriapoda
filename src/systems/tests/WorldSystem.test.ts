@@ -40,6 +40,7 @@ class TestEventBus {
 
 const rendererState = {
   addFillPulse: vi.fn(),
+  destroy: vi.fn(),
   getSpawnableCells: vi.fn((cells) => cells),
   isExpansionActive: vi.fn(() => false),
   startExpansion: vi.fn(),
@@ -56,6 +57,7 @@ vi.mock('phaser', () => ({
 vi.mock('@/rendering/WorldRenderer', () => ({
   WorldRenderer: vi.fn().mockImplementation(() => ({
     addFillPulse: rendererState.addFillPulse,
+    destroy: rendererState.destroy,
     getSpawnableCells: rendererState.getSpawnableCells,
     isExpansionActive: rendererState.isExpansionActive,
     startExpansion: rendererState.startExpansion,
@@ -125,6 +127,7 @@ function createEnemyFactory() {
 describe('WorldSystem', () => {
   beforeEach(() => {
     rendererState.addFillPulse.mockClear();
+    rendererState.destroy.mockClear();
     rendererState.getSpawnableCells.mockClear();
     rendererState.getSpawnableCells.mockImplementation((cells) => cells);
     rendererState.isExpansionActive.mockClear();
