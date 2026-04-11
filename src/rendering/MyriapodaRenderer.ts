@@ -20,6 +20,7 @@ const dashSpiralDepth = 5.03;
 const stomachNoiseDepth = 5.04;
 const bodyDepth = 5.08;
 const limbDepth = 5.1;
+const limbStrikeDepth = 5.12;
 const stomachGlowDepth = 5.14;
 const stomachParticleDepth = 5.16;
 const stomachMembraneDepth = 5.18;
@@ -53,6 +54,7 @@ export class MyriapodaRenderer {
   private readonly dashRearWhirlGraphics: Phaser.GameObjects.Graphics;
   private readonly shellGraphics: Phaser.GameObjects.Graphics;
   private readonly limbGraphics: Phaser.GameObjects.Graphics;
+  private readonly limbStrikeGraphics: Phaser.GameObjects.Graphics;
   private readonly stomachGlowGraphics: Phaser.GameObjects.Graphics;
   private readonly stomachMembraneGraphics: Phaser.GameObjects.Graphics;
   private readonly shellHighlightGraphics: Phaser.GameObjects.Graphics;
@@ -96,6 +98,7 @@ export class MyriapodaRenderer {
     this.dashRearWhirlGraphics = scene.add.graphics().setDepth(dashSpiralDepth);
     this.shellGraphics = scene.add.graphics().setDepth(bodyDepth);
     this.limbGraphics = scene.add.graphics().setDepth(limbDepth);
+    this.limbStrikeGraphics = scene.add.graphics().setDepth(limbStrikeDepth);
     this.stomachGlowGraphics = scene.add.graphics().setDepth(stomachGlowDepth);
     this.stomachMembraneGraphics = scene.add.graphics().setDepth(stomachMembraneDepth);
     this.shellHighlightGraphics = scene.add.graphics().setDepth(shellHighlightDepth);
@@ -114,7 +117,7 @@ export class MyriapodaRenderer {
       contentDepth: stomachParticleDepth,
       blurRadius: tuning.myriapodaFxStomachMaskBlurRadius,
     });
-    this.limbRenderer = new LimbRenderer(this.limbGraphics);
+    this.limbRenderer = new LimbRenderer(this.limbGraphics, this.limbStrikeGraphics);
 
     Phaser.Actions.AddEffectBloom(this.vacuumGraphics, {
       threshold: tuning.myriapodaFxVacuumBloomThreshold,
@@ -135,6 +138,13 @@ export class MyriapodaRenderer {
       blurRadius: tuning.dashFxBloomRadius,
       blurSteps: tuning.dashFxBloomSteps,
       blendAmount: tuning.dashFxBloomAmount,
+      useInternal: true,
+    });
+    Phaser.Actions.AddEffectBloom(this.limbStrikeGraphics, {
+      threshold: tuning.limbStrikeBloomThreshold,
+      blurRadius: tuning.limbStrikeBloomRadius,
+      blurSteps: tuning.limbStrikeBloomSteps,
+      blendAmount: tuning.limbStrikeBloomAmount,
       useInternal: true,
     });
   }
@@ -163,6 +173,7 @@ export class MyriapodaRenderer {
     this.dashRearWhirlGraphics.clear();
     this.shellGraphics.clear();
     this.limbGraphics.clear();
+    this.limbStrikeGraphics.clear();
     this.stomachGlowGraphics.clear();
     this.stomachMembraneGraphics.clear();
     this.shellHighlightGraphics.clear();
@@ -182,6 +193,7 @@ export class MyriapodaRenderer {
     this.dashRearWhirlGraphics.destroy();
     this.shellGraphics.destroy();
     this.limbGraphics.destroy();
+    this.limbStrikeGraphics.destroy();
     this.stomachGlowGraphics.destroy();
     this.stomachMembraneGraphics.destroy();
     this.shellHighlightGraphics.destroy();

@@ -34,6 +34,10 @@ export const tuning = {
   myriapodaStomachColor: 0xffaecd,
   limbBaseColor: 0xaee7c0,
   limbGlowColor: 0xfff3ac,
+  limbElectricGlowColor: 0x49d9ff,
+  limbElectricMidColor: 0xa9f3ff,
+  limbElectricCoreColor: 0xffffff,
+  limbElectricFlashColor: 0xdaf8ff,
 
   // Head movement
   headRadius: 6,
@@ -304,6 +308,19 @@ export const tuning = {
   limbRecoveryPullBoost: 1.45,
   limbHomeSnapDistancePx: 2.2,
   limbDamage: 1,
+  limbStrikeJitterPx: 2.8,
+  limbStrikeSecondaryJitterPx: 1.9,
+  limbStrikeReachPx: 16,
+  limbStrikeBranchLengthPx: 13,
+  limbStrikeBranchJitterPx: 2.2,
+  limbStrikeTipFlashRadiusPx: 7.5,
+  limbStrikeImpactFlashRadiusPx: 9.5,
+  limbStrikeTipRayLengthPx: 8.5,
+  limbStrikeTipRayWidthPx: 1.4,
+  limbStrikeBloomThreshold: 0.14,
+  limbStrikeBloomRadius: 16,
+  limbStrikeBloomSteps: 4,
+  limbStrikeBloomAmount: 0.86,
 
   // Plants
   purifiedPlantOccupancyChance: 0.8,
