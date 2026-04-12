@@ -88,6 +88,12 @@ export class GraphicsMaskController {
     this.markDirty();
   }
 
+  setRenderTransform(anchorX: number, anchorY: number, scale: number): void {
+    this.maskGraphics.setScale(scale);
+    this.maskGraphics.setPosition(anchorX * (1 - scale), anchorY * (1 - scale));
+    this.markDirty();
+  }
+
   drawMask(draw: (graphics: Phaser.GameObjects.Graphics) => void): void {
     this.maskGraphics.fillStyle(0xffffff, 1);
     draw(this.maskGraphics);

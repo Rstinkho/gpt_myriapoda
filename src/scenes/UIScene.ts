@@ -10,6 +10,8 @@ const transitionFlashDepth = 1100.1;
 interface UISceneData {
   eventBus: Phaser.Events.EventEmitter;
   getSnapshot: () => HudSnapshot;
+  requestEvolutionOpen: () => void;
+  requestUiModeCycle?: () => void;
 }
 
 export class UIScene extends Phaser.Scene {
@@ -17,6 +19,8 @@ export class UIScene extends Phaser.Scene {
   private statusPanel?: StatusPanel;
   private eventBus?: Phaser.Events.EventEmitter;
   private getSnapshot?: () => HudSnapshot;
+  private requestEvolutionOpen?: () => void;
+  private requestUiModeCycle?: () => void;
   private transitionFlashGraphics?: Phaser.GameObjects.Graphics;
   private transitionActive = false;
   private transitionElapsedMs = 0;
@@ -28,10 +32,15 @@ export class UIScene extends Phaser.Scene {
   init(data: UISceneData): void {
     this.eventBus = data.eventBus;
     this.getSnapshot = data.getSnapshot;
+    this.requestEvolutionOpen = data.requestEvolutionOpen;
+    this.requestUiModeCycle = data.requestUiModeCycle;
   }
 
   create(): void {
-    this.topHeader = new TopHeader(this);
+    this.topHeader = new TopHeader(this, {
+      requestEvolutionOpen: () => this.requestEvolutionOpen?.(),
+      requestUiModeCycle: () => this.requestUiModeCycle?.(),
+    });
     this.statusPanel = new StatusPanel(this);
     this.createTransitionOverlay();
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.handleSceneShutdown, this);
@@ -137,10 +146,13 @@ export class UIScene extends Phaser.Scene {
     this.scale.off('resize', this.handleResize, this);
     this.eventBus?.off(GameEvents.hudChanged, this.refresh, this);
     this.eventBus?.off(GameEvents.worldExpanded, this.handleWorldExpanded, this);
+    this.topHeader?.destroy();
     this.statusPanel?.destroy();
     this.destroyTransitionOverlay();
     this.eventBus = undefined;
     this.getSnapshot = undefined;
+    this.requestEvolutionOpen = undefined;
+    this.requestUiModeCycle = undefined;
     this.topHeader = undefined;
     this.statusPanel = undefined;
   }

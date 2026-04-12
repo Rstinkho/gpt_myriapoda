@@ -10,9 +10,11 @@ export class InputSystem {
     left: Phaser.Input.Keyboard.Key;
     right: Phaser.Input.Keyboard.Key;
     dash: Phaser.Input.Keyboard.Key;
+    evolution: Phaser.Input.Keyboard.Key;
   };
   private wheelDeltaY = 0;
   private dashQueued = false;
+  private evolutionToggleQueued = false;
 
   private snapshot: InputSnapshot = {
     pointerWorldX: 0,
@@ -31,6 +33,7 @@ export class InputSystem {
       left: Phaser.Input.Keyboard.KeyCodes.A,
       right: Phaser.Input.Keyboard.KeyCodes.D,
       dash: Phaser.Input.Keyboard.KeyCodes.SPACE,
+      evolution: Phaser.Input.Keyboard.KeyCodes.E,
     }) as typeof this.keys;
     scene.input.on('wheel', this.handleWheel, this);
   }
@@ -49,6 +52,8 @@ export class InputSystem {
       wheelDeltaY: this.wheelDeltaY,
     };
     this.dashQueued = this.dashQueued || Phaser.Input.Keyboard.JustDown(this.keys.dash);
+    this.evolutionToggleQueued =
+      this.evolutionToggleQueued || Phaser.Input.Keyboard.JustDown(this.keys.evolution);
     this.wheelDeltaY = 0;
   }
 
@@ -59,6 +64,12 @@ export class InputSystem {
   consumeDashRequest(): boolean {
     const queued = this.dashQueued;
     this.dashQueued = false;
+    return queued;
+  }
+
+  consumeEvolutionToggleRequest(): boolean {
+    const queued = this.evolutionToggleQueued;
+    this.evolutionToggleQueued = false;
     return queued;
   }
 

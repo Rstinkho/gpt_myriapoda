@@ -1,0 +1,888 @@
+import * as Phaser from 'phaser';
+import { EvolutionEnhancementBranch } from '@/evolution/EvolutionEnhancementBranch';
+import {
+  computeEvolutionContentSplit,
+  evolutionToolbarResourceIds,
+  getEvolutionMyriapodaPanelLayout,
+  getEvolutionWorldActionsViewLayout,
+  getEvolutionWorldBuildingsViewLayout,
+  getEvolutionWorldSideContentRect,
+} from '@/evolution/evolutionLayout';
+import { EvolutionMyriapodaPreview } from '@/evolution/EvolutionMyriapodaPreview';
+import { EvolutionWorldActionCards } from '@/evolution/EvolutionWorldActionCards';
+import { EvolutionWorldBuildingsPanel } from '@/evolution/EvolutionWorldBuildingsPanel';
+import { EvolutionWorldView } from '@/evolution/EvolutionWorldView';
+import { closeEvolutionOverlay } from '@/evolution/overlayLifecycle';
+import { getPickupDefinition } from '@/entities/pickups/PickupRegistry';
+import type { EvolutionSection, EvolutionSnapshot, WorldRightPanelView } from '@/game/types';
+import { getHexTypeDefinition } from '@/game/hexTypes';
+
+interface EvolutionSceneData {
+  snapshot: EvolutionSnapshot;
+}
+
+const TAB_MYRIAPODA_W = 272;
+const TAB_MYRIAPODA_H = 48;
+const TAB_WORLD_W = 132;
+const TAB_WORLD_H = 48;
+const TAB_GAP = 14;
+const MAIN_GUTTER = 14;
+const TITLE_SUBTITLE_GAP = 20;
+const CLOSE_MARGIN = 24;
+const TOOLBAR_HEIGHT = 56;
+const RESOURCE_ITEM_WIDTH = 84;
+const RESOURCE_ITEM_GAP = 10;
+const SECTION_BADGE_PAD_X = 14;
+const SECTION_BADGE_PAD_Y = 8;
+const WORLD_RIGHT_SUBTAB_TOP_PAD = 6;
+const WORLD_RIGHT_SUBTAB_H = 44;
+const WORLD_RIGHT_SUBTAB_GAP_AFTER = 8;
+const WORLD_SUBTAB_ACTIONS_W = 112;
+const WORLD_SUBTAB_BUILDINGS_W = 124;
+const WORLD_SUBTAB_BETWEEN = 10;
+
+export class EvolutionScene extends Phaser.Scene {
+  private snapshot?: EvolutionSnapshot;
+  private preview?: EvolutionMyriapodaPreview;
+  private worldView?: EvolutionWorldView;
+  private enhancementBranch?: EvolutionEnhancementBranch;
+  private worldActionCards?: EvolutionWorldActionCards;
+  private worldBuildingsPanel?: EvolutionWorldBuildingsPanel;
+  private worldActionsSubTab?: Phaser.GameObjects.Text;
+  private worldBuildingsSubTab?: Phaser.GameObjects.Text;
+  private worldActionsSubTabHit?: Phaser.GameObjects.Zone;
+  private worldBuildingsSubTabHit?: Phaser.GameObjects.Zone;
+  private backdropGraphics?: Phaser.GameObjects.Graphics;
+  private chromeGraphics?: Phaser.GameObjects.Graphics;
+  private title?: Phaser.GameObjects.Text;
+  private subtitle?: Phaser.GameObjects.Text;
+  private sectionHeading?: Phaser.GameObjects.Text;
+  private contextTitle?: Phaser.GameObjects.Text;
+  private contextBody?: Phaser.GameObjects.Text;
+  private contextStats?: Phaser.GameObjects.Text;
+  private footerHint?: Phaser.GameObjects.Text;
+  private myriapodaTab?: Phaser.GameObjects.Text;
+  private worldTab?: Phaser.GameObjects.Text;
+  private myriapodaTabHitArea?: Phaser.GameObjects.Zone;
+  private worldTabHitArea?: Phaser.GameObjects.Zone;
+  private closeButton?: Phaser.GameObjects.Text;
+  private resourceIcons: Phaser.GameObjects.Image[] = [];
+  private resourceCountTexts: Phaser.GameObjects.Text[] = [];
+  private resourceSlotBounds: Phaser.Geom.Rectangle[] = [];
+  private closeKey?: Phaser.Input.Keyboard.Key;
+  private evolutionKey?: Phaser.Input.Keyboard.Key;
+  private section: EvolutionSection = 'myriapoda';
+  private worldRightPanel: WorldRightPanelView = 'actions';
+  private hoveredTab: EvolutionSection | null = null;
+  private hoveredWorldSubTab: WorldRightPanelView | null = null;
+  private closeHovered = false;
+  private outerBounds = new Phaser.Geom.Rectangle();
+  private toolbarBounds = new Phaser.Geom.Rectangle();
+  private contentBounds = new Phaser.Geom.Rectangle();
+  private sideBounds = new Phaser.Geom.Rectangle();
+  private sectionBadgeBounds = new Phaser.Geom.Rectangle();
+  private detailCardBounds = new Phaser.Geom.Rectangle();
+  private statsCardBounds = new Phaser.Geom.Rectangle();
+  private lowerPanelBounds = new Phaser.Geom.Rectangle();
+  private worldStatsBounds = new Phaser.Geom.Rectangle();
+  private worldActionsBounds = new Phaser.Geom.Rectangle();
+  private headerSeparator = { x: 0, y1: 0, y2: 0 };
+  private contentTopY = 0;
+  private closing = false;
+
+  constructor() {
+    super('EvolutionScene');
+  }
+
+  init(data: EvolutionSceneData): void {
+    this.snapshot = data.snapshot;
+    this.section = 'myriapoda';
+    this.hoveredTab = null;
+    this.hoveredWorldSubTab = null;
+    this.worldRightPanel = 'actions';
+    this.closeHovered = false;
+    this.closing = false;
+    this.resourceSlotBounds = evolutionToolbarResourceIds.map(() => new Phaser.Geom.Rectangle());
+  }
+
+  create(): void {
+    if (!this.snapshot) {
+      this.scene.stop();
+      return;
+    }
+
+    this.backdropGraphics = this.add.graphics().setDepth(0.2);
+    this.chromeGraphics = this.add.graphics().setDepth(20);
+    this.preview = new EvolutionMyriapodaPreview(this, this.snapshot.myriapoda);
+    this.worldView = new EvolutionWorldView(this, this.snapshot.world);
+    this.enhancementBranch = new EvolutionEnhancementBranch(this);
+    this.worldActionCards = new EvolutionWorldActionCards(this);
+    this.worldBuildingsPanel = new EvolutionWorldBuildingsPanel(this);
+
+    this.worldActionsSubTab = this.createWorldSubTabLabel('ACTIONS');
+    this.worldBuildingsSubTab = this.createWorldSubTabLabel('BUILDINGS');
+    this.worldActionsSubTabHit = this.createWorldSubTabHit('actions', WORLD_SUBTAB_ACTIONS_W);
+    this.worldBuildingsSubTabHit = this.createWorldSubTabHit('buildings', WORLD_SUBTAB_BUILDINGS_W);
+
+    this.title = this.add
+      .text(0, 0, 'EVOLUTION', {
+        fontFamily: 'Georgia',
+        fontSize: '34px',
+        color: '#f1fbf5',
+        stroke: '#061014',
+        strokeThickness: 7,
+      })
+      .setDepth(21);
+
+    this.subtitle = this.add
+      .text(0, 0, 'Strategic mutation and world shaping', {
+        fontFamily: 'Palatino Linotype',
+        fontStyle: 'italic',
+        fontSize: '20px',
+        color: '#8fd4c6',
+        stroke: '#061014',
+        strokeThickness: 5,
+      })
+      .setDepth(21);
+
+    this.sectionHeading = this.add
+      .text(0, 0, '', {
+        fontFamily: 'Trebuchet MS',
+        fontSize: '12px',
+        fontStyle: 'bold',
+        color: '#ecfffb',
+        letterSpacing: 2.2,
+      })
+      .setDepth(21)
+      .setOrigin(0, 0.5);
+
+    this.contextTitle = this.add
+      .text(0, 0, '', {
+        fontFamily: 'Georgia',
+        fontSize: '24px',
+        color: '#f6fbff',
+        stroke: '#061014',
+        strokeThickness: 5,
+      })
+      .setDepth(21);
+
+    this.contextBody = this.add
+      .text(0, 0, '', {
+        fontFamily: 'Trebuchet MS',
+        fontSize: '16px',
+        color: '#beddd6',
+        lineSpacing: 8,
+      })
+      .setDepth(21);
+
+    this.contextStats = this.add
+      .text(0, 0, '', {
+        fontFamily: 'Trebuchet MS',
+        fontSize: '15px',
+        color: '#90d7cb',
+        lineSpacing: 10,
+        letterSpacing: 0.8,
+      })
+      .setDepth(21);
+
+    this.footerHint = this.add
+      .text(0, 0, '', {
+        fontFamily: 'Trebuchet MS',
+        fontSize: '14px',
+        color: '#86bfb5',
+        letterSpacing: 1.2,
+      })
+      .setDepth(21);
+
+    this.myriapodaTab = this.createTabLabel('MYRIAPODA DEVELOPMENT');
+    this.worldTab = this.createTabLabel('WORLD');
+    this.myriapodaTabHitArea = this.createTabHitArea('myriapoda', TAB_MYRIAPODA_W, TAB_MYRIAPODA_H);
+    this.worldTabHitArea = this.createTabHitArea('world', TAB_WORLD_W, TAB_WORLD_H);
+
+    this.closeButton = this.add
+      .text(0, 0, 'ESC / E CLOSE', {
+        fontFamily: 'Trebuchet MS',
+        fontSize: '14px',
+        color: '#9fd8cc',
+        letterSpacing: 2,
+        backgroundColor: '#0a181c',
+        padding: { left: 8, right: 8, top: 6, bottom: 6 },
+      })
+      .setDepth(21);
+    this.closeButton.setInteractive({ useHandCursor: true });
+    this.closeButton.on('pointerover', this.handleCloseOver, this);
+    this.closeButton.on('pointerout', this.handleCloseOut, this);
+    this.closeButton.on('pointerdown', this.handleCloseRequested, this);
+
+    for (const resourceId of evolutionToolbarResourceIds) {
+      const definition = getPickupDefinition(resourceId);
+      const icon = this.add.image(0, 0, definition.textureKey).setDepth(21).setScale(0.58);
+      const countText = this.add
+        .text(0, 0, '0', {
+          fontFamily: 'Trebuchet MS',
+          fontSize: '15px',
+          color: '#c5f5ea',
+          stroke: '#061014',
+          strokeThickness: 3,
+        })
+        .setDepth(21)
+        .setOrigin(0, 0.5);
+      this.resourceIcons.push(icon);
+      this.resourceCountTexts.push(countText);
+    }
+
+    this.closeKey = this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.ESC) ?? undefined;
+    this.evolutionKey =
+      this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.E) ?? undefined;
+
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.handleShutdown, this);
+    this.scale.on('resize', this.handleResize, this);
+    this.input.on('pointermove', this.handlePointerMove, this);
+    this.input.on('pointerdown', this.handlePointerDown, this);
+    this.input.on('pointerup', this.handlePointerUp, this);
+    this.input.on('wheel', this.handleWheel, this);
+    this.handleResize();
+    this.updateSectionVisibility();
+  }
+
+  update(_time: number, deltaMs: number): void {
+    if (
+      (this.closeKey && Phaser.Input.Keyboard.JustDown(this.closeKey)) ||
+      (this.evolutionKey && Phaser.Input.Keyboard.JustDown(this.evolutionKey))
+    ) {
+      this.handleCloseRequested();
+      return;
+    }
+
+    const deltaSeconds = Math.min(0.05, deltaMs / 1000);
+    if (this.section === 'myriapoda') {
+      this.preview?.update(deltaSeconds);
+    } else {
+      this.worldView?.update(deltaSeconds);
+    }
+    this.refreshContextPanel();
+  }
+
+  private createTabLabel(label: string): Phaser.GameObjects.Text {
+    return this.add
+      .text(0, 0, label, {
+        fontFamily: 'Trebuchet MS',
+        fontSize: '15px',
+        fontStyle: 'bold',
+        color: '#e7fffb',
+        letterSpacing: 1.8,
+      })
+      .setDepth(21)
+      .setOrigin(0.5, 0.5);
+  }
+
+  private createTabHitArea(
+    section: EvolutionSection,
+    width: number,
+    height: number,
+  ): Phaser.GameObjects.Zone {
+    const zone = this.add.zone(0, 0, width, height).setOrigin(0.5).setDepth(21.2);
+    zone.setInteractive({ useHandCursor: true });
+    zone.on('pointerover', () => {
+      this.hoveredTab = section;
+      this.renderChrome();
+    });
+    zone.on('pointerout', () => {
+      if (this.hoveredTab === section) {
+        this.hoveredTab = null;
+      }
+      this.renderChrome();
+    });
+    zone.on('pointerdown', () => {
+      this.setSection(section);
+    });
+    return zone;
+  }
+
+  private createWorldSubTabLabel(label: string): Phaser.GameObjects.Text {
+    return this.add
+      .text(0, 0, label, {
+        fontFamily: 'Trebuchet MS',
+        fontSize: '13px',
+        fontStyle: 'bold',
+        color: '#e7fffb',
+        letterSpacing: 1.6,
+      })
+      .setDepth(21)
+      .setOrigin(0.5, 0.5)
+      .setVisible(false);
+  }
+
+  private createWorldSubTabHit(view: WorldRightPanelView, width: number): Phaser.GameObjects.Zone {
+    const zone = this.add
+      .zone(0, 0, width, WORLD_RIGHT_SUBTAB_H)
+      .setOrigin(0.5)
+      .setDepth(21.2);
+    zone.setInteractive({ useHandCursor: true });
+    zone.on('pointerover', () => {
+      this.hoveredWorldSubTab = view;
+      this.renderChrome();
+    });
+    zone.on('pointerout', () => {
+      if (this.hoveredWorldSubTab === view) {
+        this.hoveredWorldSubTab = null;
+      }
+      this.renderChrome();
+    });
+    zone.on('pointerdown', () => {
+      this.setWorldRightPanelView(view);
+    });
+    return zone;
+  }
+
+  private setWorldRightPanelView(view: WorldRightPanelView): void {
+    this.worldRightPanel = view;
+    this.updateSectionVisibility();
+    this.handleResize();
+    this.renderChrome();
+    this.refreshContextPanel();
+  }
+
+  private setSection(section: EvolutionSection): void {
+    this.section = section;
+    if (section === 'myriapoda') {
+      this.hoveredWorldSubTab = null;
+    }
+    this.updateSectionVisibility();
+    this.handleResize();
+    this.renderChrome();
+    this.refreshContextPanel();
+  }
+
+  private updateSectionVisibility(): void {
+    const myriapodaVisible = this.section === 'myriapoda';
+    const worldVisible = !myriapodaVisible;
+    const showWorldActions = worldVisible && this.worldRightPanel === 'actions';
+    const showWorldBuildings = worldVisible && this.worldRightPanel === 'buildings';
+    this.preview?.setVisible(myriapodaVisible);
+    this.worldView?.setVisible(worldVisible);
+    this.enhancementBranch?.setVisible(myriapodaVisible);
+    this.worldActionCards?.setVisible(showWorldActions);
+    this.worldBuildingsPanel?.setVisible(showWorldBuildings);
+    this.worldActionsSubTab?.setVisible(worldVisible);
+    this.worldBuildingsSubTab?.setVisible(worldVisible);
+    this.worldActionsSubTabHit?.setVisible(worldVisible);
+    this.worldBuildingsSubTabHit?.setVisible(worldVisible);
+  }
+
+  private handleResize(): void {
+    const width = this.scale.width;
+    const height = this.scale.height;
+    const outerX = 34;
+    const outerY = 24;
+    const outerWidth = Math.max(900, width - 68);
+    const outerHeight = Math.max(620, height - 48);
+    const mainX = outerX + 28;
+    const toolbarX = mainX;
+    const toolbarWidth = outerWidth - 56;
+
+    this.outerBounds.setTo(outerX, outerY, outerWidth, outerHeight);
+
+    const titleRowY = outerY + 26;
+    this.title?.setPosition(outerX + 28, titleRowY);
+    const titleH = this.title?.height ?? 40;
+    const titleCenterY = titleRowY + titleH * 0.5;
+    this.subtitle?.setOrigin(0, 0.5);
+    const subtitleX = (this.title?.x ?? 0) + (this.title?.width ?? 0) + TITLE_SUBTITLE_GAP;
+    this.subtitle?.setPosition(subtitleX, titleCenterY);
+
+    const titleRight = (this.title?.x ?? 0) + (this.title?.width ?? 0);
+    this.headerSeparator.x = (titleRight + subtitleX) * 0.5;
+    this.headerSeparator.y1 = titleRowY + 6;
+    this.headerSeparator.y2 = titleRowY + titleH - 6;
+
+    if (this.closeButton) {
+      this.closeButton.setPosition(
+        outerX + outerWidth - this.closeButton.width - CLOSE_MARGIN,
+        outerY + 28,
+      );
+    }
+
+    const toolbarY = titleRowY + titleH + 18;
+    this.toolbarBounds.setTo(toolbarX, toolbarY, toolbarWidth, TOOLBAR_HEIGHT);
+    const toolbarCenterY = toolbarY + TOOLBAR_HEIGHT * 0.5;
+    const myriapodaCx = toolbarX + TAB_MYRIAPODA_W * 0.5;
+    const worldCx = myriapodaCx + TAB_MYRIAPODA_W * 0.5 + TAB_GAP + TAB_WORLD_W * 0.5;
+    this.myriapodaTab?.setPosition(myriapodaCx, toolbarCenterY);
+    this.worldTab?.setPosition(worldCx, toolbarCenterY);
+    this.myriapodaTabHitArea?.setPosition(myriapodaCx, toolbarCenterY);
+    this.worldTabHitArea?.setPosition(worldCx, toolbarCenterY);
+
+    const resourceStripWidth =
+      evolutionToolbarResourceIds.length * RESOURCE_ITEM_WIDTH +
+      (evolutionToolbarResourceIds.length - 1) * RESOURCE_ITEM_GAP;
+    const resourceStripX = toolbarX + toolbarWidth - resourceStripWidth;
+    for (let i = 0; i < evolutionToolbarResourceIds.length; i += 1) {
+      const resourceId = evolutionToolbarResourceIds[i];
+      const slotX = resourceStripX + i * (RESOURCE_ITEM_WIDTH + RESOURCE_ITEM_GAP);
+      const slotY = toolbarCenterY - 16;
+      const slotBounds = this.resourceSlotBounds[i];
+      slotBounds.setTo(slotX, slotY, RESOURCE_ITEM_WIDTH, 32);
+
+      const count = this.snapshot?.resourceCounts[resourceId] ?? 0;
+      this.resourceIcons[i]?.setOrigin(0.5, 0.5);
+      this.resourceIcons[i]?.setPosition(slotX + 20, toolbarCenterY);
+      this.resourceCountTexts[i]?.setText(String(count));
+      this.resourceCountTexts[i]?.setPosition(slotX + 38, toolbarCenterY);
+    }
+
+    const sectionHeadingY = toolbarY + TOOLBAR_HEIGHT + 22;
+    this.sectionHeading?.setPosition(mainX + 4, sectionHeadingY);
+    this.updateSectionBadgeBounds();
+
+    this.contentTopY = this.sectionBadgeBounds.bottom + 16;
+    const contentBottom = outerY + outerHeight - 36;
+    const contentHeight = contentBottom - this.contentTopY;
+    const innerW = outerWidth - 56;
+    const split = computeEvolutionContentSplit(innerW, this.section, MAIN_GUTTER);
+
+    this.contentBounds.setTo(mainX, this.contentTopY, split.leftWidth, contentHeight);
+    this.sideBounds.setTo(
+      mainX + split.leftWidth + MAIN_GUTTER,
+      this.contentTopY,
+      split.rightWidth,
+      contentHeight,
+    );
+
+    this.preview?.layout(this.contentBounds);
+    this.worldView?.layout(this.contentBounds);
+
+    const myriapodaPanel = getEvolutionMyriapodaPanelLayout(this.sideBounds);
+    this.detailCardBounds.setTo(
+      myriapodaPanel.detailCard.x,
+      myriapodaPanel.detailCard.y,
+      myriapodaPanel.detailCard.width,
+      myriapodaPanel.detailCard.height,
+    );
+    this.statsCardBounds.setTo(
+      myriapodaPanel.statsCard.x,
+      myriapodaPanel.statsCard.y,
+      myriapodaPanel.statsCard.width,
+      myriapodaPanel.statsCard.height,
+    );
+    this.lowerPanelBounds.setTo(
+      myriapodaPanel.lowerPanel.x,
+      myriapodaPanel.lowerPanel.y,
+      myriapodaPanel.lowerPanel.width,
+      myriapodaPanel.lowerPanel.height,
+    );
+    this.enhancementBranch?.layout(this.lowerPanelBounds);
+
+    if (this.section === 'world') {
+      const worldTabBarH = WORLD_RIGHT_SUBTAB_TOP_PAD + WORLD_RIGHT_SUBTAB_H;
+      const subTabCenterY =
+        this.sideBounds.y + WORLD_RIGHT_SUBTAB_TOP_PAD + WORLD_RIGHT_SUBTAB_H * 0.5;
+      const subTabLeft = this.sideBounds.x + 12 + WORLD_SUBTAB_ACTIONS_W * 0.5;
+      const subTabRight =
+        subTabLeft +
+        WORLD_SUBTAB_ACTIONS_W * 0.5 +
+        WORLD_SUBTAB_BETWEEN +
+        WORLD_SUBTAB_BUILDINGS_W * 0.5;
+      this.worldActionsSubTab?.setPosition(subTabLeft, subTabCenterY);
+      this.worldBuildingsSubTab?.setPosition(subTabRight, subTabCenterY);
+      this.worldActionsSubTabHit?.setPosition(subTabLeft, subTabCenterY);
+      this.worldBuildingsSubTabHit?.setPosition(subTabRight, subTabCenterY);
+      this.bindWorldSubTabHitAreas();
+
+      const worldContent = getEvolutionWorldSideContentRect(
+        this.sideBounds,
+        worldTabBarH,
+        WORLD_RIGHT_SUBTAB_GAP_AFTER,
+      );
+      const wb = getEvolutionWorldBuildingsViewLayout(worldContent);
+      /** Always place building tiles from current 30% column; otherwise they stay at (0,0). */
+      this.worldBuildingsPanel?.layout(wb.buildingsSection);
+
+      if (this.worldRightPanel === 'actions') {
+        const wa = getEvolutionWorldActionsViewLayout(worldContent);
+        this.worldStatsBounds.setTo(
+          wa.statsCard.x,
+          wa.statsCard.y,
+          wa.statsCard.width,
+          wa.statsCard.height,
+        );
+        this.worldActionsBounds.setTo(
+          wa.actionList.x,
+          wa.actionList.y,
+          wa.actionList.width,
+          wa.actionList.height,
+        );
+        this.worldActionCards?.layout(this.worldActionsBounds);
+      } else {
+        this.worldStatsBounds.setTo(0, 0, 0, 0);
+        this.worldActionsBounds.setTo(0, 0, 0, 0);
+        this.worldActionCards?.layout({ x: 0, y: 0, width: 1, height: 1 });
+      }
+    }
+
+    this.footerHint?.setPosition(outerX + 32, outerY + outerHeight - 34);
+    this.renderChrome();
+    this.refreshContextPanel();
+  }
+
+  private renderChrome(): void {
+    if (!this.backdropGraphics || !this.chromeGraphics) {
+      return;
+    }
+
+    this.backdropGraphics.clear();
+    this.backdropGraphics.fillStyle(0x040a10, 1);
+    this.backdropGraphics.fillRect(0, 0, this.scale.width, this.scale.height);
+
+    this.chromeGraphics.clear();
+
+    this.chromeGraphics.lineStyle(1.2, 0x7fd8c8, 0.55);
+    this.chromeGraphics.lineBetween(
+      this.headerSeparator.x,
+      this.headerSeparator.y1,
+      this.headerSeparator.x,
+      this.headerSeparator.y2,
+    );
+
+    this.chromeGraphics.lineStyle(1.1, 0x8fd4c6, 0.4);
+    this.chromeGraphics.strokeRoundedRect(
+      this.outerBounds.x,
+      this.outerBounds.y,
+      this.outerBounds.width,
+      this.outerBounds.height,
+      38,
+    );
+
+    this.drawSectionTab(this.myriapodaTab, 'myriapoda', TAB_MYRIAPODA_W, TAB_MYRIAPODA_H);
+    this.drawSectionTab(this.worldTab, 'world', TAB_WORLD_W, TAB_WORLD_H);
+
+    if (this.section === 'world') {
+      this.drawWorldRightSubTab(
+        this.worldActionsSubTab,
+        'actions',
+        WORLD_SUBTAB_ACTIONS_W,
+        WORLD_RIGHT_SUBTAB_H,
+      );
+      this.drawWorldRightSubTab(
+        this.worldBuildingsSubTab,
+        'buildings',
+        WORLD_SUBTAB_BUILDINGS_W,
+        WORLD_RIGHT_SUBTAB_H,
+      );
+    }
+
+    this.chromeGraphics.lineStyle(1, 0x7aaea4, 0.26);
+    this.chromeGraphics.strokeRoundedRect(
+      this.contentBounds.x,
+      this.contentBounds.y,
+      this.contentBounds.width,
+      this.contentBounds.height,
+      34,
+    );
+
+    if (this.section === 'myriapoda') {
+      this.drawPanelCard(this.detailCardBounds);
+      this.drawPanelCard(this.statsCardBounds);
+      this.drawPanelCard(this.lowerPanelBounds);
+    }
+
+    if (this.closeHovered && this.closeButton) {
+      this.chromeGraphics.lineStyle(1, 0xa4fff1, 0.5);
+      this.chromeGraphics.strokeRoundedRect(
+        this.closeButton.x - 8,
+        this.closeButton.y - 5,
+        this.closeButton.width + 16,
+        this.closeButton.height + 10,
+        18,
+      );
+    }
+  }
+
+  private updateSectionBadgeBounds(): void {
+    if (!this.sectionHeading) {
+      return;
+    }
+
+    const headingWidth = this.sectionHeading.width + SECTION_BADGE_PAD_X * 2;
+    const headingHeight = this.sectionHeading.height + SECTION_BADGE_PAD_Y * 2;
+    this.sectionBadgeBounds.setTo(
+      this.sectionHeading.x - 4,
+      this.sectionHeading.y - headingHeight * 0.5,
+      headingWidth,
+      headingHeight,
+    );
+  }
+
+  private drawPanelCard(bounds: Phaser.Geom.Rectangle): void {
+    if (!this.chromeGraphics) {
+      return;
+    }
+
+    this.chromeGraphics.fillStyle(0x08161c, 0.94);
+    this.chromeGraphics.fillRoundedRect(bounds.x, bounds.y, bounds.width, bounds.height, 22);
+    this.chromeGraphics.lineStyle(1, 0x7abbb0, 0.24);
+    this.chromeGraphics.strokeRoundedRect(bounds.x, bounds.y, bounds.width, bounds.height, 22);
+  }
+
+  private bindWorldSubTabHitAreas(): void {
+    this.worldActionsSubTabHit?.setSize(WORLD_SUBTAB_ACTIONS_W, WORLD_RIGHT_SUBTAB_H);
+    this.worldBuildingsSubTabHit?.setSize(WORLD_SUBTAB_BUILDINGS_W, WORLD_RIGHT_SUBTAB_H);
+  }
+
+  private drawWorldRightSubTab(
+    label: Phaser.GameObjects.Text | undefined,
+    view: WorldRightPanelView,
+    width: number,
+    height: number,
+  ): void {
+    if (!label || !this.chromeGraphics) {
+      return;
+    }
+
+    const isActive = this.worldRightPanel === view;
+    const isHovered = this.hoveredWorldSubTab === view;
+    const x = label.x - width / 2;
+    const y = label.y - height / 2;
+
+    this.chromeGraphics.fillStyle(
+      isActive ? 0x103137 : isHovered ? 0x0d242a : 0x09171d,
+      isActive ? 0.95 : isHovered ? 0.88 : 0.78,
+    );
+    this.chromeGraphics.fillRoundedRect(x, y, width, height, 15);
+    this.chromeGraphics.lineStyle(
+      1.05,
+      isActive ? 0xcffdf8 : isHovered ? 0xa8e0d8 : 0x5a8078,
+      isActive ? 0.55 : isHovered ? 0.38 : 0.22,
+    );
+    this.chromeGraphics.strokeRoundedRect(x, y, width, height, 15);
+  }
+
+  private drawSectionTab(
+    label: Phaser.GameObjects.Text | undefined,
+    section: EvolutionSection,
+    width: number,
+    height: number,
+  ): void {
+    if (!label || !this.chromeGraphics) {
+      return;
+    }
+
+    const isActive = this.section === section;
+    const isHovered = this.hoveredTab === section;
+    const x = label.x - width / 2;
+    const y = label.y - height / 2;
+
+    this.chromeGraphics.fillStyle(
+      isActive ? 0x103137 : isHovered ? 0x0d242a : 0x09171d,
+      isActive ? 0.95 : isHovered ? 0.88 : 0.78,
+    );
+    this.chromeGraphics.fillRoundedRect(x, y, width, height, 17);
+    this.chromeGraphics.lineStyle(
+      1.1,
+      isActive ? 0xcffdf8 : isHovered ? 0xa8e0d8 : 0x5a8078,
+      isActive ? 0.55 : isHovered ? 0.38 : 0.22,
+    );
+    this.chromeGraphics.strokeRoundedRect(x, y, width, height, 17);
+  }
+
+  private refreshContextPanel(): void {
+    if (
+      !this.snapshot ||
+      !this.sectionHeading ||
+      !this.contextTitle ||
+      !this.contextBody ||
+      !this.contextStats ||
+      !this.footerHint
+    ) {
+      return;
+    }
+
+    if (this.section === 'myriapoda') {
+      const focused = this.preview?.getFocusedPart();
+      const focusedName = this.preview?.getFocusedPartName() ?? 'Select a body part';
+      this.sectionHeading.setText('MYRIAPODA DEVELOPMENT');
+      this.updateSectionBadgeBounds();
+      this.contextTitle.setVisible(true);
+      this.contextBody.setVisible(true);
+      this.contextTitle.setText(focusedName.toUpperCase());
+      this.contextBody.setText(
+        focused
+          ? 'Adaptive tissue socket selected.\nPlaceholder mutation nodes radiate from this focus and stay presentation-only in this pass.'
+          : 'Hover or click the animated myriapoda preview to inspect the head, limbs, tail, stomach, and each body circle individually.',
+      );
+      this.contextStats.setText(
+        [
+          `SEGMENTS: ${this.snapshot.myriapoda.segmentCount}`,
+          `STORED MATTER: ${this.snapshot.myriapoda.stomachResources.length}`,
+          `PARASITES: ${this.snapshot.myriapoda.parasiteCount}`,
+          `FOCUS: ${focused ? focused.label : 'None'}`,
+        ].join('\n'),
+      );
+      this.contextTitle.setPosition(this.detailCardBounds.x + 18, this.detailCardBounds.y + 18);
+      this.contextBody.setPosition(this.detailCardBounds.x + 18, this.detailCardBounds.y + 64);
+      this.contextBody.setWordWrapWidth(this.detailCardBounds.width - 36);
+      this.contextStats.setVisible(true);
+      this.contextStats.setPosition(this.statsCardBounds.x + 18, this.statsCardBounds.y + 22);
+      this.contextStats.setWordWrapWidth(this.statsCardBounds.width - 36);
+      this.footerHint.setText('CLICK TO PIN A BODY PART  |  E / ESC CLOSE');
+      this.renderChrome();
+      return;
+    }
+
+    const focusedCell = this.worldView?.getFocusedCell();
+    const cellType = focusedCell ? getHexTypeDefinition(focusedCell.type) : null;
+    this.sectionHeading.setText('WORLD STRATEGIC VIEW');
+    this.updateSectionBadgeBounds();
+    this.contextTitle.setVisible(false);
+    this.contextBody.setVisible(false);
+    const showHexStats = this.worldRightPanel === 'actions';
+    this.contextStats.setVisible(showHexStats);
+    if (showHexStats) {
+      this.contextStats.setText(
+        [
+          `HEX: ${focusedCell ? `${focusedCell.coord.q}, ${focusedCell.coord.r}` : 'None'}`,
+          `HEX TYPE: ${cellType ? cellType.id.toUpperCase() : 'None'}`,
+          `WORLD STAGE: ${this.snapshot.world.stage}`,
+          `FILL: ${this.snapshot.world.fillLevel}/${this.snapshot.world.fillThreshold}`,
+        ].join('\n'),
+      );
+      this.contextStats.setPosition(this.worldStatsBounds.x + 18, this.worldStatsBounds.y + 20);
+      this.contextStats.setWordWrapWidth(this.worldStatsBounds.width - 36);
+    }
+    this.footerHint.setText('WHEEL TO ZOOM  |  DRAG TO PAN  |  CLICK TO PIN  |  E / ESC CLOSE');
+    this.renderChrome();
+  }
+
+  private handlePointerMove(pointer: Phaser.Input.Pointer): void {
+    if (this.section === 'myriapoda') {
+      this.preview?.handlePointerMove(pointer.x, pointer.y);
+      return;
+    }
+
+    this.worldView?.handlePointerMove(pointer.x, pointer.y);
+  }
+
+  private handlePointerDown(pointer: Phaser.Input.Pointer): void {
+    if (this.section === 'myriapoda') {
+      this.preview?.handlePointerDown(pointer.x, pointer.y);
+      return;
+    }
+
+    this.worldView?.handlePointerDown(pointer.x, pointer.y);
+  }
+
+  private handlePointerUp(pointer: Phaser.Input.Pointer): void {
+    if (this.section !== 'world') {
+      return;
+    }
+
+    this.worldView?.handlePointerUp(pointer.x, pointer.y);
+  }
+
+  private handleWheel(
+    pointer: Phaser.Input.Pointer,
+    _currentlyOver: Phaser.GameObjects.GameObject[],
+    _deltaX: number,
+    deltaY: number,
+  ): void {
+    if (this.section !== 'world') {
+      return;
+    }
+
+    this.worldView?.handleWheel(deltaY, pointer.x, pointer.y);
+  }
+
+  private handleCloseOver(): void {
+    this.closeHovered = true;
+    this.renderChrome();
+  }
+
+  private handleCloseOut(): void {
+    this.closeHovered = false;
+    this.renderChrome();
+  }
+
+  private handleCloseRequested(): void {
+    if (this.closing) {
+      return;
+    }
+
+    this.closing = true;
+    closeEvolutionOverlay(this.scene as never);
+  }
+
+  private handleShutdown(): void {
+    this.scale.off('resize', this.handleResize, this);
+    this.input.off('pointermove', this.handlePointerMove, this);
+    this.input.off('pointerdown', this.handlePointerDown, this);
+    this.input.off('pointerup', this.handlePointerUp, this);
+    this.input.off('wheel', this.handleWheel, this);
+
+    this.closeButton?.off('pointerover', this.handleCloseOver, this);
+    this.closeButton?.off('pointerout', this.handleCloseOut, this);
+    this.closeButton?.off('pointerdown', this.handleCloseRequested, this);
+    this.myriapodaTabHitArea?.removeAllListeners();
+    this.worldTabHitArea?.removeAllListeners();
+
+    this.preview?.destroy();
+    this.worldView?.destroy();
+    this.enhancementBranch?.destroy();
+    this.worldActionCards?.destroy();
+    this.worldBuildingsPanel?.destroy();
+    this.worldActionsSubTab?.destroy();
+    this.worldBuildingsSubTab?.destroy();
+    this.worldActionsSubTabHit?.destroy();
+    this.worldBuildingsSubTabHit?.destroy();
+    this.backdropGraphics?.destroy();
+    this.chromeGraphics?.destroy();
+    this.title?.destroy();
+    this.subtitle?.destroy();
+    this.sectionHeading?.destroy();
+    this.contextTitle?.destroy();
+    this.contextBody?.destroy();
+    this.contextStats?.destroy();
+    this.footerHint?.destroy();
+    this.myriapodaTab?.destroy();
+    this.worldTab?.destroy();
+    this.myriapodaTabHitArea?.destroy();
+    this.worldTabHitArea?.destroy();
+    this.closeButton?.destroy();
+    for (const img of this.resourceIcons) {
+      img.destroy();
+    }
+    for (const t of this.resourceCountTexts) {
+      t.destroy();
+    }
+
+    this.snapshot = undefined;
+    this.preview = undefined;
+    this.worldView = undefined;
+    this.enhancementBranch = undefined;
+    this.worldActionCards = undefined;
+    this.worldBuildingsPanel = undefined;
+    this.worldActionsSubTab = undefined;
+    this.worldBuildingsSubTab = undefined;
+    this.worldActionsSubTabHit = undefined;
+    this.worldBuildingsSubTabHit = undefined;
+    this.backdropGraphics = undefined;
+    this.chromeGraphics = undefined;
+    this.title = undefined;
+    this.subtitle = undefined;
+    this.sectionHeading = undefined;
+    this.contextTitle = undefined;
+    this.contextBody = undefined;
+    this.contextStats = undefined;
+    this.footerHint = undefined;
+    this.myriapodaTab = undefined;
+    this.worldTab = undefined;
+    this.myriapodaTabHitArea = undefined;
+    this.worldTabHitArea = undefined;
+    this.closeButton = undefined;
+    this.resourceIcons = [];
+    this.resourceCountTexts = [];
+    this.resourceSlotBounds = [];
+    this.closeKey = undefined;
+    this.evolutionKey = undefined;
+    this.closing = false;
+  }
+}

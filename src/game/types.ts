@@ -195,3 +195,29 @@ export interface HudSnapshot {
   stomachParasites: UiStomachParasiteSnapshot[];
   debug: boolean;
 }
+
+export type EvolutionSection = 'myriapoda' | 'world';
+
+/** Right-hand column (30%) when `EvolutionSection` is `world`: Actions vs Buildings. */
+export type WorldRightPanelView = 'actions' | 'buildings';
+
+export type EvolutionPartId =
+  | 'head'
+  | 'stomach'
+  | 'tail'
+  | { type: 'limb'; index: number }
+  | { type: 'segment'; index: number };
+
+export interface EvolutionMyriapodaSnapshot {
+  segmentCount: number;
+  stomachResources: PickupResourceId[];
+  parasiteCount: number;
+}
+
+export type EvolutionResourceCounts = Record<PickupResourceId, number>;
+
+export interface EvolutionSnapshot {
+  myriapoda: EvolutionMyriapodaSnapshot;
+  world: WorldRenderSnapshot;
+  resourceCounts: EvolutionResourceCounts;
+}

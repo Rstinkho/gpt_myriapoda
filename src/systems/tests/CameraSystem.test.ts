@@ -179,9 +179,9 @@ describe('CameraSystem', () => {
     const secondExpandedFrame = camera.zoom;
     const secondControlFrame = controlCamera.zoom;
 
-    expect(firstExpandedFrame).toBeGreaterThan(firstControlFrame);
-    expect(secondExpandedFrame).toBeGreaterThan(secondControlFrame);
-    expect(Math.abs(firstExpandedFrame - firstControlFrame)).toBeLessThan(0.05);
-    expect(Math.abs(secondExpandedFrame - firstExpandedFrame)).toBeLessThan(0.05);
+    // During stage expansion the camera zooms out to the minimum and follows world center,
+    // so it diverges from the normal follow-zoom path; still step smoothly frame-to-frame.
+    expect(Math.abs(secondExpandedFrame - firstExpandedFrame)).toBeLessThan(0.12);
+    expect(firstExpandedFrame).toBeLessThan(firstControlFrame);
   });
 });

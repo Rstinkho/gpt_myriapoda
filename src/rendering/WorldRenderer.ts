@@ -16,6 +16,7 @@ import {
   advanceDisplayFillProgress,
   sampleExpansionDisplayProgress,
   sampleStageAnimation,
+  type StageAnimationSample,
 } from '@/rendering/worldAnimationMath';
 import {
   getPlayerInfluence,
@@ -171,6 +172,7 @@ export class WorldRenderer {
     const visibleRenderCells = this.createRenderCells(visibleCells, snapshot, animation, 'revealed');
 
     const suppressHeavyFx = this.pendingExpansion !== null;
+    const expansionCyanRims = this.pendingExpansion !== null;
 
     this.renderRevealGlow(revealCells, snapshot.hexSize, suppressHeavyFx);
     this.renderCells(
@@ -179,9 +181,21 @@ export class WorldRenderer {
       visibleRenderCells,
       snapshot.hexSize,
       animation.revealProgress,
+      expansionCyanRims,
     );
-    this.drawWorldSilhouetteMask(silhouetteCells, snapshot.hexSize);
-    this.renderBorder(this.borderShadowGraphics, silhouetteCells, snapshot.hexSize);
+    if (expansionCyanRims) {
+      const rimAlpha = animation.cyanPrime !== undefined ? animation.cyanPrime : 1;
+      this.renderExpansionCyanPrimeOverlays(
+        this.cellStrokeGraphics,
+        silhouetteCells,
+        snapshot.hexSize,
+        rimAlpha,
+      );
+    }
+    if (!this.pendingExpansion) {
+      this.drawWorldSilhouetteMask(silhouetteCells, snapshot.hexSize);
+      this.renderBorder(this.borderShadowGraphics, silhouetteCells, snapshot.hexSize);
+    }
 
     if (this.pendingExpansion && this.getExpansionProgress() >= 1) {
       this.pendingExpansion = null;
@@ -199,7 +213,7 @@ export class WorldRenderer {
   private createRenderCells(
     cells: HexCell[],
     snapshot: WorldRenderSnapshot,
-    animation: { spacingBreath: number; rotation: number; revealProgress: number },
+    animation: StageAnimationSample,
     mode: 'full' | 'revealed',
   ): RenderCell[] {
     if (cells.length === 0) {
@@ -257,6 +271,7 @@ export class WorldRenderer {
     renderCells: RenderCell[],
     hexSize: number,
     revealProgress: number,
+    useExpansionCyanRims: boolean,
   ): void {
     const cellStrokeAlpha =
       tuning.worldCellStrokeBaseAlpha + this.fillPulse * 0.2 + revealProgress * 0.1;
@@ -289,7 +304,42 @@ export class WorldRenderer {
       }
     }
 
-    this.strokeHexCellOutlines(strokeGraphics, renderCells, hexSize, cellLineWidth, cellStrokeAlpha);
+    if (!useExpansionCyanRims) {
+      this.strokeHexCellOutlines(strokeGraphics, renderCells, hexSize, cellLineWidth, cellStrokeAlpha);
+    }
+  }
+
+  /** Thick stacked cyan rims on every cell for the full stage-expansion animation (alpha ramps during cyan-prime segment). */
+  private renderExpansionCyanPrimeOverlays(
+    graphics: Phaser.GameObjects.Graphics,
+    cells: RenderCell[],
+    hexSize: number,
+    cyanPrime: number,
+  ): void {
+    const a = Math.max(0, Math.min(1, cyanPrime));
+    const glowW = (tuning.worldBorderGlowWidth * 1.1) / 2;
+    const outerW = (tuning.worldBorderProgressWidth * 1.15) / 2;
+    const innerW = outerW * 0.55;
+
+    for (const cell of cells) {
+      const r = Math.max(4, (hexSize - tuning.worldCellInset) * cell.scale);
+      const points = createRegularHexPoints(cell.centerX, cell.centerY, r);
+      const lineAlpha = cell.alpha;
+
+      for (let side = 0; side < HEX_NEIGHBOR_DIRECTIONS.length; side += 1) {
+        const ax = points[side].x;
+        const ay = points[side].y;
+        const bx = points[(side + 1) % 6].x;
+        const by = points[(side + 1) % 6].y;
+
+        graphics.lineStyle(glowW + outerW * 0.5, 0x0a5d77, 0.4 * a * lineAlpha);
+        graphics.lineBetween(ax, ay, bx, by);
+        graphics.lineStyle(outerW, 0x39d7f2, 0.88 * a * lineAlpha);
+        graphics.lineBetween(ax, ay, bx, by);
+        graphics.lineStyle(innerW, 0xc9f9ff, 0.95 * a * lineAlpha);
+        graphics.lineBetween(ax, ay, bx, by);
+      }
+    }
   }
 
   private drawWorldSilhouetteMask(cells: HexCell[], hexSize: number): void {
@@ -304,42 +354,6 @@ export class WorldRenderer {
         g.fillPoints(pts as Phaser.Math.Vector2[], true);
       }
     });
-  }
-
-  /**
-   * Each hex draws all six sides with its own inset radius so shared interior edges are stroked twice
-   * (double line between neighbors). Rendered in `cellStrokeGraphics` above entities.
-   */
-  private strokeHexCellOutlines(
-    graphics: Phaser.GameObjects.Graphics,
-    renderCells: RenderCell[],
-    hexSize: number,
-    cellLineWidth: number,
-    cellStrokeAlpha: number,
-  ): void {
-    for (const cell of renderCells) {
-      const r = Math.max(4, (hexSize - tuning.worldCellInset) * cell.scale);
-      const points = createRegularHexPoints(cell.centerX, cell.centerY, r);
-      const lineAlpha = cell.alpha;
-      const strokeAlpha = (cellStrokeAlpha + cell.playerInfluence * 0.18) * lineAlpha;
-      const hexType = getHexTypeDefinition(cell.type);
-
-      for (let side = 0; side < HEX_NEIGHBOR_DIRECTIONS.length; side += 1) {
-        const ax = points[side].x;
-        const ay = points[side].y;
-        const bx = points[(side + 1) % 6].x;
-        const by = points[(side + 1) % 6].y;
-
-        graphics.lineStyle(
-          cellLineWidth + 1.2,
-          0x061013,
-          tuning.worldCellStrokeDarkLayerAlpha * lineAlpha,
-        );
-        graphics.lineBetween(ax, ay, bx, by);
-        graphics.lineStyle(cellLineWidth, hexType.strokeColor, strokeAlpha);
-        graphics.lineBetween(ax, ay, bx, by);
-      }
-    }
   }
 
   private renderBorder(
@@ -431,6 +445,42 @@ export class WorldRenderer {
     for (const edge of edges) {
       graphics.fillCircle(edge.start.x, edge.start.y, jointRadius);
       graphics.fillCircle(edge.end.x, edge.end.y, jointRadius);
+    }
+  }
+
+  /**
+   * Each hex draws all six sides with its own inset radius so shared interior edges are stroked twice
+   * (double line between neighbors). Rendered in `cellStrokeGraphics` above entities.
+   */
+  private strokeHexCellOutlines(
+    graphics: Phaser.GameObjects.Graphics,
+    renderCells: RenderCell[],
+    hexSize: number,
+    cellLineWidth: number,
+    cellStrokeAlpha: number,
+  ): void {
+    for (const cell of renderCells) {
+      const r = Math.max(4, (hexSize - tuning.worldCellInset) * cell.scale);
+      const points = createRegularHexPoints(cell.centerX, cell.centerY, r);
+      const lineAlpha = cell.alpha;
+      const strokeAlpha = (cellStrokeAlpha + cell.playerInfluence * 0.18) * lineAlpha;
+      const hexType = getHexTypeDefinition(cell.type);
+
+      for (let side = 0; side < HEX_NEIGHBOR_DIRECTIONS.length; side += 1) {
+        const ax = points[side].x;
+        const ay = points[side].y;
+        const bx = points[(side + 1) % 6].x;
+        const by = points[(side + 1) % 6].y;
+
+        graphics.lineStyle(
+          cellLineWidth + 1.2,
+          0x061013,
+          tuning.worldCellStrokeDarkLayerAlpha * lineAlpha,
+        );
+        graphics.lineBetween(ax, ay, bx, by);
+        graphics.lineStyle(cellLineWidth, hexType.strokeColor, strokeAlpha);
+        graphics.lineBetween(ax, ay, bx, by);
+      }
     }
   }
 

@@ -121,6 +121,19 @@ export const tuning = {
   cameraHitShake: 0.65,
   cameraExpansionZoom: 0.032,
   cameraExpansionShake: 1.35,
+  /** Subtracted from camera zoom at expansion start; fades out over `expansionLeadOutFraction` of the timeline (pull back before the spin). */
+  cameraExpansionLeadOutZoom: 0.04,
+  /** Portion [0,1] of expansion over which `cameraExpansionLeadOutZoom` eases from full to zero. */
+  expansionLeadOutFraction: 0.2,
+  /**
+   * During stage expansion, zoom is blended from normal fit zoom toward `cameraAbsoluteMinZoom`.
+   * 0 = keep auto-fit only; 1 = full zoom-out to the absolute floor (aggressive).
+   */
+  cameraExpansionZoomOutBlend: 0.34,
+  /** Scroll smoothing while expansion pins the view on world center (higher = quicker centering). */
+  cameraExpansionFollowLerp: 0.26,
+  /** Scales expansion-driven shake so the map stays steadier in frame. */
+  cameraExpansionShakeScale: 0.3,
 
   // UI
   uiPanelMinWidth: 240,
@@ -128,8 +141,8 @@ export const tuning = {
   uiPanelMarginTop: 18,
   uiPanelMarginRight: 20,
   uiCounterIconSize: 24,
-  uiHeaderPillWidth: 88,
-  uiHeaderPillHeight: 32,
+  uiHeaderPillWidth: 100,
+  uiHeaderPillHeight: 42,
   uiPanelAccentColor: 0x9fdfff,
   uiDangerColor: 0xff6d78,
 
@@ -155,7 +168,9 @@ export const tuning = {
   worldFillDisplayLerp: 0.12,
   worldBorderTrailWindow: 0.2,
   worldBorderFrontWindow: 0.045,
-  expansionAnimationSeconds: 3.6,
+  expansionAnimationSeconds: 6.2,
+  /** First fraction [0,1] of expansion: all hexes show thick cyan rims; rotation/reveal start after. */
+  expansionCyanPrimeFraction: 0.14,
   worldStageSpacingBreath: 0.11,
   worldRevealCellMinScale: 0.36,
 

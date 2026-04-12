@@ -13,6 +13,7 @@ vi.mock('phaser', () => ({
         S: 83,
         D: 68,
         SPACE: 32,
+        E: 69,
       },
       JustDown: justDown,
     },
@@ -28,6 +29,7 @@ function createScene() {
     left: { isDown: false },
     right: { isDown: false },
     dash: { isDown: false, justDown: false },
+    evolution: { isDown: false, justDown: false },
   };
 
   return {
@@ -69,5 +71,17 @@ describe('InputSystem', () => {
 
     expect(inputSystem.consumeDashRequest()).toBe(false);
     expect(justDown).toHaveBeenCalled();
+  });
+
+  it('queues evolution toggle once per rendered update and consumes it only once', () => {
+    const { keys, scene } = createScene();
+    const inputSystem = new InputSystem(scene as never);
+
+    keys.evolution.justDown = true;
+    inputSystem.update();
+    keys.evolution.justDown = false;
+
+    expect(inputSystem.consumeEvolutionToggleRequest()).toBe(true);
+    expect(inputSystem.consumeEvolutionToggleRequest()).toBe(false);
   });
 });

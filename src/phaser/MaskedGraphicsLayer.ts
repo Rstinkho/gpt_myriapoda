@@ -60,6 +60,12 @@ export class MaskedGraphicsLayer {
     this.mask.drawMask(draw);
   }
 
+  setRenderTransform(anchorX: number, anchorY: number, scale: number): void {
+    this.graphics.setScale(scale);
+    this.graphics.setPosition(anchorX * (1 - scale), anchorY * (1 - scale));
+    this.mask.setRenderTransform(anchorX, anchorY, scale);
+  }
+
   setVisible(visible: boolean): void {
     this.graphics.setVisible(visible);
   }

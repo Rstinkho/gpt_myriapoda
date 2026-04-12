@@ -1,7 +1,11 @@
+import { tuning } from '@/game/tuning';
+
 export interface StageAnimationSample {
   spacingBreath: number;
   rotation: number;
   revealProgress: number;
+  /** 0..1 while expansion is in the pre-rotation cyan-rim phase; omitted once rotation begins. */
+  cyanPrime?: number;
 }
 
 const fullTurn = Math.PI * 2;
@@ -67,39 +71,53 @@ export function sampleExpansionDisplayProgress(
   return lerp(1, overflow, easeInOutCubic(rangeProgress(clampedProgress, 0.78, 1)));
 }
 
-export function sampleStageAnimation(progress: number): StageAnimationSample {
+/**
+ * @param cyanPrimeEnd — when > 0, the first this fraction of the timeline is cyan-rim only (no rotation).
+ *   Pass `0` in tests to use the legacy timeline without a cyan prime segment.
+ */
+export function sampleStageAnimation(
+  progress: number,
+  cyanPrimeEnd: number = tuning.expansionCyanPrimeFraction,
+): StageAnimationSample {
   const clampedProgress = clamp01(progress);
+  const cEnd = clamp01(cyanPrimeEnd);
+
+  if (cEnd > 0.0001 && clampedProgress < cEnd) {
+    return {
+      spacingBreath: 0,
+      rotation: 0,
+      revealProgress: 0,
+      cyanPrime: rangeProgress(clampedProgress, 0, cEnd),
+    };
+  }
+
+  const main = cEnd >= 0.9999 ? clampedProgress : rangeProgress(clampedProgress, cEnd, 1);
 
   let spacingBreath = 0;
-  if (clampedProgress <= 0.22) {
-    spacingBreath = Math.sin(rangeProgress(clampedProgress, 0, 0.22) * Math.PI);
+  if (main <= 0.22) {
+    spacingBreath = Math.sin(rangeProgress(main, 0, 0.22) * Math.PI);
   }
 
   let rotation = 0;
-  if (clampedProgress <= 0.55) {
-    rotation = lerp(0, fullTurn, easeInOutCubic(rangeProgress(clampedProgress, 0, 0.55)));
-  } else if (clampedProgress <= 0.75) {
+  if (main <= 0.55) {
+    rotation = lerp(0, fullTurn, easeInOutCubic(rangeProgress(main, 0, 0.55)));
+  } else if (main <= 0.75) {
     rotation = lerp(
       fullTurn,
       counterSwingRotation,
-      easeInOutCubic(rangeProgress(clampedProgress, 0.55, 0.75)),
+      easeInOutCubic(rangeProgress(main, 0.55, 0.75)),
     );
-  } else if (clampedProgress <= 0.9) {
+  } else if (main <= 0.9) {
     rotation = lerp(
       counterSwingRotation,
       reboundRotation,
-      easeInOutCubic(rangeProgress(clampedProgress, 0.75, 0.9)),
+      easeInOutCubic(rangeProgress(main, 0.75, 0.9)),
     );
   } else {
-    rotation = lerp(
-      reboundRotation,
-      0,
-      easeInOutCubic(rangeProgress(clampedProgress, 0.9, 1)),
-    );
+    rotation = lerp(reboundRotation, 0, easeInOutCubic(rangeProgress(main, 0.9, 1)));
   }
 
-  const revealProgress =
-    clampedProgress < 0.78 ? 0 : easeOutCubic(rangeProgress(clampedProgress, 0.78, 0.96));
+  const revealProgress = main < 0.78 ? 0 : easeOutCubic(rangeProgress(main, 0.78, 0.96));
 
   return {
     spacingBreath,

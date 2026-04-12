@@ -60,20 +60,39 @@ export class CameraSystem {
       x: Math.cos(intent.aimAngle) * lookAheadScale,
       y: Math.sin(intent.aimAngle) * lookAheadScale,
     };
+    const expansionAnimating =
+      tuning.expansionAnimationSeconds > 0 &&
+      this.expansionElapsed < tuning.expansionAnimationSeconds;
+
     const playerTarget = {
       x: headPosition.x + lookAhead.x,
       y: headPosition.y + lookAhead.y,
     };
+    const lookTarget = expansionAnimating
+      ? { x: worldBounds.centerX, y: worldBounds.centerY }
+      : playerTarget;
 
     const expansionProgress =
       tuning.expansionAnimationSeconds <= 0
         ? 1
         : this.expansionElapsed / tuning.expansionAnimationSeconds;
     const expansionEnvelope = Math.sin(expansionProgress * Math.PI);
+    const leadFrac = tuning.expansionLeadOutFraction;
+    const leadOutEnvelope =
+      expansionAnimating &&
+      leadFrac > 0.0001 &&
+      expansionProgress < leadFrac
+        ? (1 - expansionProgress / leadFrac) ** 1.25
+        : 0;
+    const expansionLeadOut = expansionAnimating
+      ? leadOutEnvelope * tuning.cameraExpansionLeadOutZoom
+      : 0;
     const shakeEnvelope =
       this.impulseDuration > 0 ? this.impulseTimer / this.impulseDuration : 0;
+    const expansionShakeMul = expansionAnimating ? tuning.cameraExpansionShakeScale : 1;
     const totalShake =
-      this.impulseShake * shakeEnvelope + expansionEnvelope * tuning.cameraExpansionShake;
+      this.impulseShake * shakeEnvelope +
+      expansionEnvelope * tuning.cameraExpansionShake * expansionShakeMul;
     const shakeOffset = {
       x: Math.cos(this.elapsed * 34) * totalShake,
       y: Math.sin(this.elapsed * 39 + 0.8) * totalShake * 0.82,
@@ -85,32 +104,46 @@ export class CameraSystem {
       tuning.cameraAbsoluteMinZoom,
       tuning.cameraAbsoluteMaxZoom,
     );
-    const manualZoom = applyManualZoomBias(
-      baseZoom,
-      wheelDeltaY,
-      this.manualZoomFactor,
-      tuning.cameraWheelStep,
-      tuning.cameraWheelMinFactor,
-      tuning.cameraWheelMaxFactor,
-    );
+    const manualZoom = expansionAnimating
+      ? {
+          zoom: Phaser.Math.Clamp(
+            baseZoom +
+              (tuning.cameraAbsoluteMinZoom - baseZoom) * tuning.cameraExpansionZoomOutBlend,
+            tuning.cameraAbsoluteMinZoom,
+            tuning.cameraAbsoluteMaxZoom,
+          ),
+          manualZoomFactor: this.manualZoomFactor,
+        }
+      : applyManualZoomBias(
+          baseZoom,
+          wheelDeltaY,
+          this.manualZoomFactor,
+          tuning.cameraWheelStep,
+          tuning.cameraWheelMinFactor,
+          tuning.cameraWheelMaxFactor,
+        );
     this.manualZoomFactor = manualZoom.manualZoomFactor;
 
     const targetZoom = Phaser.Math.Clamp(
       manualZoom.zoom -
-        intent.thrust * tuning.cameraMotionZoomOut +
+        (expansionAnimating ? 0 : intent.thrust * tuning.cameraMotionZoomOut) +
         this.impulseZoom +
-        expansionEnvelope * tuning.cameraExpansionZoom,
+        (expansionAnimating ? 0 : expansionEnvelope * tuning.cameraExpansionZoom) -
+        expansionLeadOut,
       tuning.cameraAbsoluteMinZoom,
       tuning.cameraAbsoluteMaxZoom,
     );
     const smoothedZoom = camera.zoom + (targetZoom - camera.zoom) * 0.16;
     const targetScroll = {
-      x: playerTarget.x - camera.width * 0.5 / smoothedZoom + shakeOffset.x,
-      y: playerTarget.y - camera.height * 0.5 / smoothedZoom + shakeOffset.y,
+      x: lookTarget.x - camera.width * 0.5 / smoothedZoom + shakeOffset.x,
+      y: lookTarget.y - camera.height * 0.5 / smoothedZoom + shakeOffset.y,
     };
 
-    camera.scrollX += (targetScroll.x - camera.scrollX) * tuning.cameraLerp;
-    camera.scrollY += (targetScroll.y - camera.scrollY) * tuning.cameraLerp;
+    const scrollLerp = expansionAnimating
+      ? tuning.cameraExpansionFollowLerp
+      : tuning.cameraLerp;
+    camera.scrollX += (targetScroll.x - camera.scrollX) * scrollLerp;
+    camera.scrollY += (targetScroll.y - camera.scrollY) * scrollLerp;
     camera.setZoom(smoothedZoom);
   }
 }

@@ -5,9 +5,12 @@ import { GameEvents } from '@/game/events';
 import type {
   CameraImpulsePayload,
   DashStateSnapshot,
+  EvolutionResourceCounts,
+  EvolutionSnapshot,
   ExpansionEvent,
   HudSnapshot,
   MoveIntent,
+  PickupResourceId,
   UiMode,
 } from '@/game/types';
 import { Enemy } from '@/entities/enemies/Enemy';
@@ -23,6 +26,11 @@ import { vec2ToPixels } from '@/physics/PhysicsUtils';
 import { EnemyBurstFxRenderer } from '@/rendering/EnemyBurstFxRenderer';
 import { EnemyBurstFxController } from '@/rendering/enemyBurstFx';
 import { MyriapodaRenderer } from '@/rendering/MyriapodaRenderer';
+import {
+  evolutionSceneKey,
+  isEvolutionOverlayOpen,
+  openEvolutionOverlay,
+} from '@/evolution/overlayLifecycle';
 import { AISystem } from '@/systems/AISystem';
 import { CameraSystem } from '@/systems/CameraSystem';
 import { CombatSystem } from '@/systems/CombatSystem';
@@ -68,6 +76,21 @@ interface TransitionPickupSnapshot {
   resourceId: Pickup['resourceId'];
   tier: Pickup['tier'];
   scale: Pickup['scale'];
+}
+
+function countEvolutionStomachResources(
+  particles: ReadonlyArray<{ resourceId: PickupResourceId }>,
+): EvolutionResourceCounts {
+  const counts: EvolutionResourceCounts = {
+    biomass: 0,
+    tissue: 0,
+    structuralCell: 0,
+    parasite: 0,
+  };
+  for (const particle of particles) {
+    counts[particle.resourceId] += 1;
+  }
+  return counts;
 }
 
 export class GameScene extends Phaser.Scene {
@@ -170,12 +193,18 @@ export class GameScene extends Phaser.Scene {
     this.scene.launch('UIScene', {
       eventBus: this.eventBus,
       getSnapshot: () => this.getHudSnapshot(),
+      requestEvolutionOpen: () => this.openEvolutionScene(),
+      requestUiModeCycle: () => this.cycleUiMode(),
     });
     this.eventBus.emit(GameEvents.hudChanged);
   }
 
   update(_time: number, deltaMs: number): void {
     this.inputSystem.update();
+    if (this.inputSystem.consumeEvolutionToggleRequest()) {
+      this.toggleEvolutionScene();
+      return;
+    }
     this.renderDeltaSeconds = Math.min(0.05, deltaMs / 1000);
     this.accumulator += deltaMs / 1000;
 
@@ -465,6 +494,55 @@ export class GameScene extends Phaser.Scene {
     };
   }
 
+  private buildEvolutionSnapshot(): EvolutionSnapshot {
+    const particles = this.myriapoda.stomach.particles;
+    return {
+      myriapoda: {
+        segmentCount: this.myriapoda.body.segments.length,
+        stomachResources: particles.map((particle) => particle.resourceId),
+        parasiteCount: this.myriapoda.stomach.getActiveParasiteCount(),
+      },
+      resourceCounts: countEvolutionStomachResources(particles),
+      world: {
+        cells: this.worldSystem.world.cells.map((cell) => ({
+          coord: { ...cell.coord },
+          centerX: cell.centerX,
+          centerY: cell.centerY,
+          unlocked: cell.unlocked,
+          type: cell.type,
+        })),
+        bounds: { ...this.worldSystem.world.bounds },
+        stage: this.worldSystem.world.stage,
+        fillLevel: this.worldSystem.world.fillLevel,
+        fillThreshold: this.worldSystem.world.fillThreshold,
+        hexSize: tuning.worldHexSize,
+        focusX: 0,
+        focusY: 0,
+      },
+    };
+  }
+
+  private toggleEvolutionScene(): void {
+    if (isEvolutionOverlayOpen(this.scene as never)) {
+      return;
+    }
+
+    this.openEvolutionScene();
+  }
+
+  private openEvolutionScene(): void {
+    if (
+      this.stageTransitionActive ||
+      isEvolutionOverlayOpen(this.scene as never)
+    ) {
+      return;
+    }
+
+    openEvolutionOverlay(this.scene as never, {
+      snapshot: this.buildEvolutionSnapshot(),
+    });
+  }
+
   private handleCameraImpulse(payload: CameraImpulsePayload): void {
     this.cameraSystem.addImpulse(payload);
   }
@@ -570,6 +648,13 @@ export class GameScene extends Phaser.Scene {
       this.scene.isSleeping('UIScene')
     ) {
       this.scene.stop('UIScene');
+    }
+    if (
+      this.scene.isActive(evolutionSceneKey) ||
+      this.scene.isPaused(evolutionSceneKey) ||
+      this.scene.isSleeping(evolutionSceneKey)
+    ) {
+      this.scene.stop(evolutionSceneKey);
     }
 
     this.eventBus.off(GameEvents.cameraImpulse, this.handleCameraImpulse, this);
