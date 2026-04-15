@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { getLeechSpawnShare, resolveEnemyType } from '@/entities/enemies/EnemyRegistry';
+import {
+  getLeechSpawnShare,
+  resolveEnemyType,
+} from '@/entities/enemies/EnemyRegistry';
 
 describe('EnemyFactory', () => {
-  it('keeps stage 1 spawns as jellyfish only', () => {
+  it('keeps stage 1 ambient spawns on jellyfish', () => {
     expect(resolveEnemyType(1, 0)).toBe('jellyfish');
     expect(getLeechSpawnShare(1)).toBe(0);
   });

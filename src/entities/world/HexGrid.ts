@@ -27,6 +27,7 @@ export class HexGrid {
       centerY: center.y,
       unlocked: true,
       type: 'dead',
+      buildable: false,
     };
   }
 

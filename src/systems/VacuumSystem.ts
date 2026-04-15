@@ -58,7 +58,9 @@ export class VacuumSystem {
       );
 
       if (pull.shouldAbsorb) {
-        myriapoda.stomach.add(pickup.resourceId);
+        if (!myriapoda.stomach.tryAdd(pickup.resourceId)) {
+          continue;
+        }
         nearbyPickupIds.delete(pickupId);
         collisions.forgetPickup(pickupId);
         pickup.destroy(world);

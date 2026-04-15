@@ -16,6 +16,10 @@ export class SpawnSystem {
 
   pickSpawn(cells: HexCell[], excludedCenter?: { x: number; y: number }): SpawnPoint {
     const cell = randomItem(cells);
+    return this.pickSpawnInCell(cell, excludedCenter);
+  }
+
+  pickSpawnInCell(cell: HexCell, excludedCenter?: { x: number; y: number }): SpawnPoint {
     const angle = randomBetween(0, Math.PI * 2);
     const radius = randomBetween(12, this.padding);
     const x = cell.centerX + Math.cos(angle) * radius;
@@ -25,7 +29,7 @@ export class SpawnSystem {
       excludedCenter &&
       Math.hypot(x - excludedCenter.x, y - excludedCenter.y) < this.padding * 0.75
     ) {
-      return this.pickSpawn(cells, excludedCenter);
+      return this.pickSpawnInCell(cell, excludedCenter);
     }
 
     return { x, y, cell };

@@ -3,7 +3,8 @@ import * as planck from 'planck';
 import type { Enemy } from '@/entities/enemies/Enemy';
 import { JellyfishEnemy } from '@/entities/enemies/jellyfish';
 import { LeechEnemy } from '@/entities/enemies/leech';
-import type { EnemyType } from '@/game/types';
+import { ShellbackEnemy } from '@/entities/enemies/shellback';
+import type { EnemySpawnContext, EnemyType } from '@/game/types';
 
 export class EnemyFactory {
   private serial = 0;
@@ -13,15 +14,17 @@ export class EnemyFactory {
     private readonly world: planck.World,
   ) {}
 
-  create(x: number, y: number, type: EnemyType = 'jellyfish'): Enemy {
+  create(spawn: EnemySpawnContext, type: EnemyType = 'jellyfish'): Enemy {
     this.serial += 1;
     const enemyId = `enemy-${this.serial}`;
 
     switch (type) {
       case 'jellyfish':
-        return new JellyfishEnemy(this.scene, this.world, enemyId, x, y);
+        return new JellyfishEnemy(this.scene, this.world, enemyId, spawn.x, spawn.y);
       case 'leech':
-        return new LeechEnemy(this.scene, this.world, enemyId, x, y);
+        return new LeechEnemy(this.scene, this.world, enemyId, spawn);
+      case 'shellback':
+        return new ShellbackEnemy(this.scene, this.world, enemyId, spawn);
     }
 
     throw new Error(`Unsupported enemy type: ${String(type)}`);

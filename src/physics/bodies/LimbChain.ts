@@ -76,4 +76,16 @@ export class LimbChainBody {
     this.root = this.bodies[0];
     this.tip = this.bodies[this.bodies.length - 1];
   }
+
+  destroy(world: planck.World): void {
+    for (const joint of this.joints) {
+      world.destroyJoint(joint);
+    }
+    this.joints.length = 0;
+
+    for (const body of this.bodies) {
+      world.destroyBody(body);
+    }
+    this.bodies.length = 0;
+  }
 }

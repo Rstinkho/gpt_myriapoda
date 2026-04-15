@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  createDashedLineSegments,
   createExposedHexEdges,
   createProgressBorderEdges,
   createProgressBorderSlice,
@@ -32,5 +33,19 @@ describe('worldBorderMath', () => {
   it('creates partial slices across the border perimeter', () => {
     const progressEdges = createProgressBorderSlice(borderEdges, 0.5, 0.75);
     expect(getBorderLength(progressEdges)).toBeCloseTo(getBorderLength(borderEdges) * 0.25, 5);
+  });
+
+  it('creates animated dashed slices along a border edge', () => {
+    const segments = createDashedLineSegments(
+      { x: 0, y: 0 },
+      { x: 100, y: 0 },
+      20,
+      10,
+      5,
+    );
+
+    expect(segments.length).toBeGreaterThan(2);
+    expect(getBorderLength(segments)).toBeGreaterThan(40);
+    expect(getBorderLength(segments)).toBeLessThan(100);
   });
 });

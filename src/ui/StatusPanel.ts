@@ -283,7 +283,9 @@ export class StatusPanel {
     }
 
     this.stageValue.setText(String(snapshot.stage));
-    this.segmentLine.setText(`SEGMENT COUNT  ${snapshot.segments}`);
+    this.segmentLine.setText(
+      `SEGMENTS ${snapshot.segments}  |  STORED ${snapshot.storedPickups}/${snapshot.stomachCapacity}`,
+    );
     this.readyBadge.setVisible(snapshot.limbReady);
     for (const entry of getPickupCountEntries(snapshot.pickupCounts)) {
       this.counterTexts[entry.tier].setText(String(entry.count));

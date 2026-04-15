@@ -13,7 +13,8 @@ import { clamp, lerp, normalize } from '@/utils/math';
 
 export interface LimbRuntime {
   id: string;
-  body: LimbChainBody;
+  slotIndex: number;
+  body: LimbChainBody | null;
   anchorRatio: number;
   mountOffsetPx: number;
   side: -1 | 1;
@@ -59,28 +60,18 @@ export class LimbController {
   readonly limbs: LimbRuntime[];
   private elapsed = 0;
 
-  constructor(world: planck.World, bodyChain: BodyChain) {
+  constructor(
+    private readonly world: planck.World,
+    bodyChain: BodyChain,
+  ) {
     const limbMounts = createLimbMounts();
     this.limbs = limbMounts.map(({ anchorRatio, side, phase }, index) => {
       const segment = bodyChain.sampleAlongBody(anchorRatio);
       const mountOffsetPx = Math.max(4.5, segment.radius * 0.8);
-      const tangent = {
-        x: Math.cos(segment.angle),
-        y: Math.sin(segment.angle),
-      };
-      const normal = {
-        x: -tangent.y * side,
-        y: tangent.x * side,
-      };
-      const anchor = {
-        x: segment.x + normal.x * mountOffsetPx,
-        y: segment.y + normal.y * mountOffsetPx,
-      };
-      const limbId = `limb-${index + 1}`;
-
-      return {
-        id: limbId,
-        body: new LimbChainBody(world, limbId, anchor, normal),
+      const limb: LimbRuntime = {
+        id: `limb-${index + 1}`,
+        slotIndex: index,
+        body: null,
         anchorRatio,
         mountOffsetPx,
         side,
@@ -88,12 +79,19 @@ export class LimbController {
         state: createIdleLimbState(),
         desiredTarget: null,
       };
+
+      limb.body = this.createLimbBody(limb, bodyChain);
+      return limb;
     });
   }
 
-  setTarget(limbId: string, targetId: string | null, targetPosition: { x: number; y: number } | null): void {
+  setTarget(
+    limbId: string,
+    targetId: string | null,
+    targetPosition: { x: number; y: number } | null,
+  ): void {
     const limb = this.limbs.find((candidate) => candidate.id === limbId);
-    if (!limb) {
+    if (!limb || !limb.body) {
       return;
     }
 
@@ -119,6 +117,12 @@ export class LimbController {
   update(deltaSeconds: number, hitLimbIds: Set<string>, bodyChain: BodyChain): void {
     this.elapsed += deltaSeconds;
     for (const limb of this.limbs) {
+      if (!limb.body) {
+        limb.desiredTarget = null;
+        limb.state = createIdleLimbState();
+        continue;
+      }
+
       limb.state = stepLimbState(
         limb.state,
         deltaSeconds,
@@ -134,8 +138,69 @@ export class LimbController {
     }
   }
 
-  isLimbReady(limb: LimbRuntime, bodyChain: BodyChain): boolean {
-    return limb.state.name === 'idle' && limb.state.timer === 0 && limb.desiredTarget === null;
+  isLimbReady(limb: LimbRuntime, _bodyChain: BodyChain): boolean {
+    return (
+      limb.body !== null &&
+      limb.state.name === 'idle' &&
+      limb.state.timer === 0 &&
+      limb.desiredTarget === null
+    );
+  }
+
+  hasAttackCapableLimb(): boolean {
+    return this.limbs.some((limb) => limb.body !== null);
+  }
+
+  getDestroyedLimbIndices(): number[] {
+    return this.limbs
+      .filter((limb) => limb.body === null)
+      .map((limb) => limb.slotIndex);
+  }
+
+  hasDestroyedLimbs(): boolean {
+    return this.limbs.some((limb) => limb.body === null);
+  }
+
+  restoreNextDestroyedLimb(bodyChain: BodyChain): boolean {
+    const limb = this.limbs.find((candidate) => candidate.body === null);
+    if (!limb) {
+      return false;
+    }
+
+    limb.body = this.createLimbBody(limb, bodyChain);
+    limb.state = createIdleLimbState();
+    limb.desiredTarget = null;
+    return true;
+  }
+
+  destroyLimb(limbId: string): boolean {
+    const limb = this.limbs.find((candidate) => candidate.id === limbId);
+    if (!limb || !limb.body) {
+      return false;
+    }
+
+    limb.body.destroy(this.world);
+    limb.body = null;
+    limb.state = createIdleLimbState();
+    limb.desiredTarget = null;
+    return true;
+  }
+
+  getAttachedSegmentIndex(limb: LimbRuntime, bodyChain: BodyChain): number {
+    if (bodyChain.segments.length <= 1) {
+      return 0;
+    }
+
+    const scaledIndex = limb.anchorRatio * (bodyChain.segments.length - 1);
+    return Math.max(0, Math.min(bodyChain.segments.length - 1, Math.round(scaledIndex)));
+  }
+
+  getActiveLimbsAttachedToSegment(segmentIndex: number, bodyChain: BodyChain): LimbRuntime[] {
+    return this.limbs.filter(
+      (limb) =>
+        limb.body !== null &&
+        this.getAttachedSegmentIndex(limb, bodyChain) === segmentIndex,
+    );
   }
 
   getStrikePose(limb: LimbRuntime, bodyChain: BodyChain): LimbStrikePose {
@@ -152,10 +217,13 @@ export class LimbController {
       x: segment.x + normal.x * limb.mountOffsetPx,
       y: segment.y + normal.y * limb.mountOffsetPx,
     };
-    const tipPixels = {
-      x: rootPixels.x + normal.x * (segment.radius + tuning.limbRestReachPx),
-      y: rootPixels.y + normal.y * (segment.radius + tuning.limbRestReachPx),
-    };
+    const tipPixels =
+      limb.body === null
+        ? {
+            x: rootPixels.x + normal.x * (segment.radius + tuning.limbRestReachPx),
+            y: rootPixels.y + normal.y * (segment.radius + tuning.limbRestReachPx),
+          }
+        : pixelsToPoint(limb.body.tip.getPosition());
 
     return {
       rootPixels,
@@ -164,8 +232,30 @@ export class LimbController {
     };
   }
 
+  private createLimbBody(limb: LimbRuntime, bodyChain: BodyChain): LimbChainBody {
+    const segment = bodyChain.sampleAlongBody(limb.anchorRatio);
+    const tangent = {
+      x: Math.cos(segment.angle),
+      y: Math.sin(segment.angle),
+    };
+    const normal = {
+      x: -tangent.y * limb.side,
+      y: tangent.x * limb.side,
+    };
+    const anchor = {
+      x: segment.x + normal.x * limb.mountOffsetPx,
+      y: segment.y + normal.y * limb.mountOffsetPx,
+    };
+
+    return new LimbChainBody(this.world, limb.id, anchor, normal);
+  }
+
   private applyForces(limb: LimbRuntime, bodyChain: BodyChain): void {
-    const { segment, tangent, normal, rootPixels, idleTargetPixels, controlPixels: homeControlPixels } =
+    if (!limb.body) {
+      return;
+    }
+
+    const { segment, rootPixels, idleTargetPixels, controlPixels: homeControlPixels } =
       this.getIdleTargets(limb, bodyChain);
     const stateProgress = getLimbStateProgress(limb.state);
     const extensionWeight =
@@ -250,7 +340,7 @@ export class LimbController {
     );
 
     limb.body.bodies.forEach((body, index) => {
-      const t = (index + 1) / limb.body.bodies.length;
+      const t = (index + 1) / limb.body!.bodies.length;
       const target = this.sampleQuadratic(root, control, desired, t);
       const current = body.getPosition();
       const chainForceScale = isRecovering
@@ -271,8 +361,6 @@ export class LimbController {
     bodyChain: BodyChain,
   ): {
     segment: ReturnType<BodyChain['sampleAlongBody']>;
-    tangent: { x: number; y: number };
-    normal: { x: number; y: number };
     rootPixels: { x: number; y: number };
     idleTargetPixels: { x: number; y: number };
     controlPixels: { x: number; y: number };
@@ -314,8 +402,6 @@ export class LimbController {
 
     return {
       segment,
-      tangent,
-      normal,
       rootPixels,
       idleTargetPixels,
       controlPixels,
@@ -328,13 +414,17 @@ export class LimbController {
     control: { x: number; y: number },
     desired: { x: number; y: number },
   ): boolean {
+    if (!limb.body) {
+      return false;
+    }
+
     const settleDistance = pixelsToMeters(tuning.limbHomeSnapDistancePx * 1.6);
     if (this.isBodyAwayFromTarget(limb.body.root, root, settleDistance)) {
       return true;
     }
 
     return limb.body.bodies.some((body, index) => {
-      const t = (index + 1) / limb.body.bodies.length;
+      const t = (index + 1) / limb.body!.bodies.length;
       const target = this.sampleQuadratic(root, control, desired, t);
       return this.isBodyAwayFromTarget(body, target, settleDistance);
     });
@@ -371,4 +461,11 @@ export class LimbController {
     const clamped = clamp(value, 0, 1);
     return -(Math.cos(Math.PI * clamped) - 1) * 0.5;
   }
+}
+
+function pixelsToPoint(vector: planck.Vec2): { x: number; y: number } {
+  return {
+    x: vector.x * tuning.pixelsPerMeter,
+    y: vector.y * tuning.pixelsPerMeter,
+  };
 }

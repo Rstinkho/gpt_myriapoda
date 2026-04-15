@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { GameEvents } from '@/game/events';
 import { tuning } from '@/game/tuning';
-import type { HexCell, PickupResourceId, PickupTier } from '@/game/types';
+import type { EnemySpawnContext, HexCell, PickupResourceId, PickupTier } from '@/game/types';
 
 interface ListenerRecord {
   handler: (payload?: unknown) => void;
@@ -113,16 +113,32 @@ function createPlantFactory() {
 function createEnemyFactory() {
   let serial = 0;
   return {
-    create: vi.fn((x: number, y: number, type = 'jellyfish') => {
+    create: vi.fn((spawn: EnemySpawnContext, type = 'jellyfish') => {
       serial += 1;
+      const guardCell = spawn.guardCell ?? spawn.cell;
       return {
         id: `spawned-enemy-${serial}`,
-        x,
-        y,
+        x: spawn.x,
+        y: spawn.y,
         type,
+        guardCellKey: `${guardCell.coord.q},${guardCell.coord.r}`,
       };
     }),
   };
+}
+
+function getSpawnCallsByType(
+  enemyFactory: ReturnType<typeof createEnemyFactory>,
+  type: string,
+) {
+  return enemyFactory.create.mock.calls.filter((call) => call[1] === type);
+}
+
+function advanceWorldToStage(worldSystem: WorldSystem, targetStage: number): void {
+  while (worldSystem.world.stage < targetStage) {
+    const expansion = worldSystem.world.addFill(worldSystem.world.fillThreshold);
+    expect(expansion).not.toBeNull();
+  }
 }
 
 describe('WorldSystem', () => {
@@ -259,7 +275,7 @@ describe('WorldSystem', () => {
     expect(enemyFactory.create).not.toHaveBeenCalled();
   });
 
-  it('passes jellyfish explicitly during stage 1 spawns', () => {
+  it('restores normal stage 1 ambient spawning before shellbacks unlock', () => {
     const eventBus = new TestEventBus();
     const pickupFactory = createPickupFactory();
     const plantFactory = createPlantFactory();
@@ -267,7 +283,7 @@ describe('WorldSystem', () => {
     const pickups = new Map();
     const plants = new Map();
     const enemies = new Map();
-    const rolls = [0.95, 0.01, 0.01];
+    const rolls = [0.95, 0.6, 0.6];
     const worldSystem = new WorldSystem(
       {} as never,
       eventBus as never,
@@ -286,7 +302,87 @@ describe('WorldSystem', () => {
     worldSystem.update({ x: 0, y: 0 });
 
     expect(enemyFactory.create).toHaveBeenCalled();
-    expect(enemyFactory.create.mock.calls[0][2]).toBe('jellyfish');
+    expect(enemyFactory.create.mock.calls[0][1]).toBe('jellyfish');
+    expect(getSpawnCallsByType(enemyFactory, 'shellback')).toHaveLength(0);
+  });
+
+  it('spawns shellbacks on enriched hexes once stage 3 is active', () => {
+    const eventBus = new TestEventBus();
+    const pickupFactory = createPickupFactory();
+    const plantFactory = createPlantFactory();
+    const enemyFactory = createEnemyFactory();
+    const pickups = new Map();
+    const plants = new Map();
+    const enemies = new Map<string, unknown>();
+    const worldSystem = new WorldSystem(
+      {} as never,
+      eventBus as never,
+      pickupFactory as never,
+      plantFactory as never,
+      enemyFactory as never,
+      pickups as never,
+      plants as never,
+      enemies as never,
+      {
+        chooseIndex: () => 0,
+        randomFloat: () => 0.6,
+      },
+    );
+    advanceWorldToStage(worldSystem, 3);
+
+    worldSystem.update({ x: 0, y: 0 });
+
+    const shellbackCalls = getSpawnCallsByType(enemyFactory, 'shellback');
+    expect(shellbackCalls).toHaveLength(1);
+    expect(shellbackCalls[0][0].guardCell?.type).toBe('enriched');
+  });
+
+  it('respawns a killed shellback only after the full cooldown elapses', () => {
+    const eventBus = new TestEventBus();
+    const pickupFactory = createPickupFactory();
+    const plantFactory = createPlantFactory();
+    const enemyFactory = createEnemyFactory();
+    const pickups = new Map();
+    const plants = new Map();
+    const enemies = new Map<string, unknown>();
+    const worldSystem = new WorldSystem(
+      {} as never,
+      eventBus as never,
+      pickupFactory as never,
+      plantFactory as never,
+      enemyFactory as never,
+      pickups as never,
+      plants as never,
+      enemies as never,
+      {
+        chooseIndex: () => 0,
+        randomFloat: () => 0.6,
+      },
+    );
+    advanceWorldToStage(worldSystem, 3);
+
+    worldSystem.update({ x: 0, y: 0 });
+    expect(getSpawnCallsByType(enemyFactory, 'shellback')).toHaveLength(1);
+
+    enemyFactory.create.mockClear();
+    enemies.clear();
+    eventBus.emit(GameEvents.enemyKilled, {
+      enemyType: 'shellback',
+      x: 0,
+      y: 0,
+    });
+
+    const respawnFrames =
+      Math.ceil(tuning.shellbackRespawnDelaySeconds / tuning.fixedStepSeconds);
+    for (let frame = 0; frame < respawnFrames - 1; frame += 1) {
+      worldSystem.update({ x: 0, y: 0 });
+    }
+
+    expect(getSpawnCallsByType(enemyFactory, 'shellback')).toHaveLength(0);
+
+    worldSystem.update({ x: 0, y: 0 });
+
+    expect(getSpawnCallsByType(enemyFactory, 'shellback')).toHaveLength(1);
   });
 
   it('passes leech explicitly once stage 2 spawning is active', () => {
@@ -317,7 +413,44 @@ describe('WorldSystem', () => {
     worldSystem.update({ x: 0, y: 0 });
 
     expect(enemyFactory.create).toHaveBeenCalled();
-    expect(enemyFactory.create.mock.calls[0][2]).toBe('leech');
+    expect(enemyFactory.create.mock.calls[0][1]).toBe('leech');
+  });
+
+  it('does not spawn a second shellback while one is already active but still restores ambient enemies', () => {
+    const eventBus = new TestEventBus();
+    const pickupFactory = createPickupFactory();
+    const plantFactory = createPlantFactory();
+    const enemyFactory = createEnemyFactory();
+    const pickups = new Map();
+    const plants = new Map();
+    const enemies = new Map<string, unknown>();
+    const worldSystem = new WorldSystem(
+      {} as never,
+      eventBus as never,
+      pickupFactory as never,
+      plantFactory as never,
+      enemyFactory as never,
+      pickups as never,
+      plants as never,
+      enemies as never,
+      {
+        chooseIndex: () => 0,
+        randomFloat: () => 0.5,
+      },
+    );
+    advanceWorldToStage(worldSystem, 3);
+
+    enemies.set('existing-shellback', {
+      id: 'existing-shellback',
+      type: 'shellback',
+      guardCellKey: '0,0',
+    });
+
+    worldSystem.update({ x: 0, y: 0 });
+
+    expect(getSpawnCallsByType(enemyFactory, 'shellback')).toHaveLength(0);
+    expect(enemyFactory.create).toHaveBeenCalled();
+    expect(enemyFactory.create.mock.calls.every((call) => call[1] !== 'shellback')).toBe(true);
   });
 
   it('releases occupied plant slots so purified hexes can respawn after a transition', () => {
@@ -350,6 +483,131 @@ describe('WorldSystem', () => {
 
     expect(plantFactory.create).toHaveBeenCalledTimes(2);
     expect(plants.size).toBe(1);
+  });
+
+  it('allows conquest only on dead hexes and marks the completed hex as owned', () => {
+    const eventBus = new TestEventBus();
+    const pickupFactory = createPickupFactory();
+    const plantFactory = createPlantFactory();
+    const enemyFactory = createEnemyFactory();
+    const pickups = new Map();
+    const plants = new Map();
+    const enemies = new Map<string, unknown>();
+    const worldSystem = new WorldSystem(
+      {} as never,
+      eventBus as never,
+      pickupFactory as never,
+      plantFactory as never,
+      enemyFactory as never,
+      pickups as never,
+      plants as never,
+      enemies as never,
+      {
+        chooseIndex: () => 0,
+        randomFloat: () => 0.5,
+      },
+    );
+    const deadCell = worldSystem.world.cells.find((cell) => cell.type === 'dead');
+    const purifiedCell = worldSystem.world.cells.find((cell) => cell.type === 'purified');
+
+    expect(deadCell).toBeDefined();
+    expect(purifiedCell).toBeDefined();
+    expect(worldSystem.canStartConquest(purifiedCell!.coord).allowed).toBe(false);
+    expect(worldSystem.canStartConquest(deadCell!.coord).allowed).toBe(true);
+    expect(worldSystem.startConquest(deadCell!.coord)).toBe(true);
+
+    worldSystem.setSpawningSuppressed(true);
+    while ((worldSystem.getConquestProgress()?.killCount ?? 0) < tuning.conquerKillGoal) {
+      worldSystem.update({ x: deadCell!.centerX, y: deadCell!.centerY });
+      for (const enemyId of [...enemies.keys()]) {
+        enemies.delete(enemyId);
+        eventBus.emit(GameEvents.enemyKilled, {
+          enemyId,
+          enemyType: 'leech',
+          x: deadCell!.centerX,
+          y: deadCell!.centerY,
+        });
+      }
+    }
+
+    const occupancyFrames = Math.ceil(
+      tuning.conquerOccupancySeconds / tuning.fixedStepSeconds,
+    );
+    for (let frame = 0; frame < occupancyFrames; frame += 1) {
+      worldSystem.update({ x: deadCell!.centerX, y: deadCell!.centerY });
+      if (!worldSystem.getConquestProgress()) {
+        break;
+      }
+    }
+
+    expect(worldSystem.getConquestProgress()).toBeNull();
+    expect(worldSystem.world.getOwnedCell()?.coord).toEqual(deadCell!.coord);
+    expect(worldSystem.world.getOwnedCell()?.buildable).toBe(true);
+    expect(worldSystem.canStartConquest(deadCell!.coord).allowed).toBe(false);
+  });
+
+  it('buffers fill while conquest is active and flushes it only after conquest resolves', () => {
+    const eventBus = new TestEventBus();
+    const pickupFactory = createPickupFactory();
+    const plantFactory = createPlantFactory();
+    const enemyFactory = createEnemyFactory();
+    const pickups = new Map();
+    const plants = new Map();
+    const enemies = new Map<string, unknown>();
+    const worldSystem = new WorldSystem(
+      {} as never,
+      eventBus as never,
+      pickupFactory as never,
+      plantFactory as never,
+      enemyFactory as never,
+      pickups as never,
+      plants as never,
+      enemies as never,
+      {
+        chooseIndex: () => 0,
+        randomFloat: () => 0.5,
+      },
+    );
+    const deadCell = worldSystem.world.cells.find((cell) => cell.type === 'dead');
+    expect(deadCell).toBeDefined();
+    expect(worldSystem.startConquest(deadCell!.coord)).toBe(true);
+
+    worldSystem.setSpawningSuppressed(true);
+    eventBus.emit(GameEvents.pickupAbsorbed, {
+      digestValue: worldSystem.world.fillThreshold,
+    });
+    worldSystem.update({ x: deadCell!.centerX, y: deadCell!.centerY });
+
+    expect(rendererState.startExpansion).not.toHaveBeenCalled();
+
+    while ((worldSystem.getConquestProgress()?.killCount ?? 0) < tuning.conquerKillGoal) {
+      worldSystem.update({ x: deadCell!.centerX, y: deadCell!.centerY });
+      for (const enemyId of [...enemies.keys()]) {
+        enemies.delete(enemyId);
+        eventBus.emit(GameEvents.enemyKilled, {
+          enemyId,
+          enemyType: 'leech',
+          x: deadCell!.centerX,
+          y: deadCell!.centerY,
+        });
+      }
+    }
+
+    const occupancyFrames = Math.ceil(
+      tuning.conquerOccupancySeconds / tuning.fixedStepSeconds,
+    );
+    for (let frame = 0; frame < occupancyFrames; frame += 1) {
+      worldSystem.update({ x: deadCell!.centerX, y: deadCell!.centerY });
+      if (!worldSystem.getConquestProgress()) {
+        break;
+      }
+    }
+
+    expect(rendererState.startExpansion).not.toHaveBeenCalled();
+
+    worldSystem.update({ x: deadCell!.centerX, y: deadCell!.centerY });
+
+    expect(rendererState.startExpansion).toHaveBeenCalledTimes(1);
   });
 
   it('drops three biomass when a jellyfish dies on the default roll path', () => {

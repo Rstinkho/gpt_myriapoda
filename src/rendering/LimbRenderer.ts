@@ -22,6 +22,9 @@ export class LimbRenderer {
     this.elapsed += tuning.fixedStepSeconds;
 
     for (const limb of myriapoda.limbs.limbs) {
+      if (!limb.body) {
+        continue;
+      }
       const segment = myriapoda.body.sampleAlongBody(limb.anchorRatio);
       const tangent = {
         x: Math.cos(segment.angle),

@@ -1,7 +1,11 @@
 import * as Phaser from 'phaser';
 import type { HexCell, WorldRenderSnapshot } from '@/game/types';
+import { tuning } from '@/game/tuning';
 import { getEvolutionStrategicHexStyle } from '@/evolution/evolutionVisuals';
-import { createRegularHexPoints } from '@/rendering/worldBorderMath';
+import {
+  createDashedLineSegments,
+  createRegularHexPoints,
+} from '@/rendering/worldBorderMath';
 import { computeFitZoom } from '@/systems/cameraMath';
 import {
   type EvolutionWorldCamera,
@@ -32,6 +36,7 @@ export class EvolutionWorldView {
   private maxZoom = 1.6;
   private hoveredCell: HexCell | null = null;
   private pinnedCell: HexCell | null = null;
+  private elapsed = 0;
   private dragging = false;
   private didDrag = false;
   private dragStartPointer = { x: 0, y: 0 };
@@ -57,11 +62,12 @@ export class EvolutionWorldView {
     }
   }
 
-  update(_deltaSeconds: number): void {
+  update(deltaSeconds: number): void {
     if (!this.visible || !this.snapshot) {
       return;
     }
 
+    this.elapsed += deltaSeconds;
     this.render();
   }
 
@@ -124,14 +130,14 @@ export class EvolutionWorldView {
     return true;
   }
 
-  handlePointerUp(x: number, y: number): boolean {
+  handlePointerUp(x: number, y: number): HexCell | null {
     if (!this.dragging) {
-      return false;
+      return null;
     }
 
     this.dragging = false;
     if (this.didDrag || !this.snapshot || !this.containsPoint(x, y)) {
-      return true;
+      return null;
     }
 
     const worldPoint = viewportToWorldPoint(x, y, this.viewport, this.camera);
@@ -143,7 +149,7 @@ export class EvolutionWorldView {
     );
     if (!picked) {
       this.pinnedCell = null;
-      return true;
+      return null;
     }
 
     this.pinnedCell =
@@ -151,7 +157,7 @@ export class EvolutionWorldView {
         ? null
         : picked;
     this.hoveredCell = picked;
-    return true;
+    return picked;
   }
 
   handleWheel(deltaY: number, pointerX: number, pointerY: number): void {
@@ -177,6 +183,24 @@ export class EvolutionWorldView {
 
   getFocusedCell(): HexCell | null {
     return this.pinnedCell ?? this.hoveredCell;
+  }
+
+  getHoveredCell(): HexCell | null {
+    return this.hoveredCell;
+  }
+
+  getCellAtScreenPoint(x: number, y: number): HexCell | null {
+    if (!this.snapshot || !this.containsPoint(x, y)) {
+      return null;
+    }
+
+    const worldPoint = viewportToWorldPoint(x, y, this.viewport, this.camera);
+    return findHexCellAtWorldPoint(
+      this.snapshot.cells,
+      this.snapshot.hexSize,
+      worldPoint.x,
+      worldPoint.y,
+    );
   }
 
   getViewport(): EvolutionWorldViewport {
@@ -274,6 +298,7 @@ export class EvolutionWorldView {
         Phaser.Math.Clamp(style.contourAlpha + (isFocused ? 0.12 : 0), 0, 1),
       );
       this.cellGraphics.strokePoints(points as Phaser.Math.Vector2[], true, true);
+      this.renderTerritoryOverlay(points, cell, isFocused);
 
       if (isFocused) {
         const focusRadius = radius * (this.pinnedCell ? 1.28 : 1.2);
@@ -291,6 +316,96 @@ export class EvolutionWorldView {
         this.glowGraphics.strokePoints(points as Phaser.Math.Vector2[], true, true);
         this.glowGraphics.lineStyle(2.4, 0xf7ffff, this.pinnedCell ? 0.96 : 0.82);
         this.glowGraphics.strokePoints(points as Phaser.Math.Vector2[], true, true);
+      }
+    }
+  }
+
+  private renderTerritoryOverlay(
+    points: Array<{ x: number; y: number }>,
+    cell: HexCell,
+    isFocused: boolean,
+  ): void {
+    if (!cell.conquestState) {
+      return;
+    }
+
+    if (cell.conquestState === 'owned') {
+      const center = points.reduce(
+        (accumulator, point) => ({
+          x: accumulator.x + point.x / points.length,
+          y: accumulator.y + point.y / points.length,
+        }),
+        { x: 0, y: 0 },
+      );
+      const radius = Math.max(
+        6,
+        points.reduce((largest, point) => {
+          return Math.max(
+            largest,
+            Math.hypot(point.x - center.x, point.y - center.y),
+          );
+        }, 0),
+      );
+      this.glowGraphics.fillStyle(
+        tuning.conquerBorderOwnedGlowColor,
+        isFocused ? 0.18 : 0.12,
+      );
+      this.glowGraphics.fillPoints(
+        createRegularHexPoints(center.x, center.y, radius * 1.12) as Phaser.Math.Vector2[],
+        true,
+      );
+      this.glowGraphics.fillStyle(
+        tuning.conquerBorderOwnedFillColor,
+        isFocused ? 0.3 : 0.22,
+      );
+      this.glowGraphics.fillPoints(points as Phaser.Math.Vector2[], true);
+      this.glowGraphics.lineStyle(
+        tuning.conquerBorderOwnedWidth + (isFocused ? 1.4 : 0),
+        tuning.conquerBorderOwnedColor,
+        isFocused ? 0.72 : 0.56,
+      );
+      this.glowGraphics.strokePoints(points as Phaser.Math.Vector2[], true, true);
+      this.glowGraphics.lineStyle(
+        Math.max(1.4, tuning.conquerBorderOwnedWidth * 0.38),
+        tuning.conquerBorderOwnedCoreColor,
+        0.96,
+      );
+      this.glowGraphics.strokePoints(points as Phaser.Math.Vector2[], true, true);
+      return;
+    }
+
+    const dashOffset = this.elapsed * tuning.conquerBorderDashTravelSpeed;
+    for (let index = 0; index < points.length; index += 1) {
+      const segments = createDashedLineSegments(
+        points[index],
+        points[(index + 1) % points.length],
+        tuning.conquerBorderDashLengthPx * Math.max(0.35, this.camera.zoom),
+        tuning.conquerBorderGapLengthPx * Math.max(0.35, this.camera.zoom),
+        dashOffset + index * tuning.conquerBorderGapLengthPx,
+      );
+      for (const segment of segments) {
+        this.glowGraphics.lineStyle(
+          tuning.conquerBorderAnimatedWidth,
+          tuning.conquerBorderActiveColor,
+          isFocused ? 0.96 : 0.82,
+        );
+        this.glowGraphics.lineBetween(
+          segment.start.x,
+          segment.start.y,
+          segment.end.x,
+          segment.end.y,
+        );
+        this.glowGraphics.lineStyle(
+          Math.max(1.2, tuning.conquerBorderAnimatedWidth * 0.34),
+          tuning.conquerBorderCoreColor,
+          0.98,
+        );
+        this.glowGraphics.lineBetween(
+          segment.start.x,
+          segment.start.y,
+          segment.end.x,
+          segment.end.y,
+        );
       }
     }
   }

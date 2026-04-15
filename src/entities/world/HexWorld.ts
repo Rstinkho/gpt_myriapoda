@@ -1,4 +1,4 @@
-import type { ExpansionEvent, HexCell, WorldBounds } from '@/game/types';
+import type { ExpansionEvent, HexCell, HexCoord, WorldBounds } from '@/game/types';
 import { tuning } from '@/game/tuning';
 import { HexGrid } from '@/entities/world/HexGrid';
 import {
@@ -24,12 +24,86 @@ export class HexWorld {
     this.fillThreshold = tuning.initialExpansionThreshold;
     this.cellsInternal = this.grid.createDisk(tuning.initialWorldRadius);
     this.chooseIndex = chooseIndex;
-    this.assignRandomPurifiedCell(this.cellsInternal);
+    this.assignStrategicCells(this.cellsInternal, this.stage);
     this.bounds = this.computeBounds();
   }
 
   get cells(): HexCell[] {
     return this.cellsInternal;
+  }
+
+  findCell(coord: HexCoord): HexCell | null {
+    return (
+      this.cellsInternal.find(
+        (cell) => cell.coord.q === coord.q && cell.coord.r === coord.r,
+      ) ?? null
+    );
+  }
+
+  getOwnedCell(ownerId = 'player'): HexCell | null {
+    return this.cellsInternal.find((cell) => cell.ownerId === ownerId) ?? null;
+  }
+
+  hasOwnedCell(ownerId = 'player'): boolean {
+    return this.getOwnedCell(ownerId) !== null;
+  }
+
+  getActiveConquestCell(): HexCell | null {
+    return this.cellsInternal.find((cell) => cell.conquestState === 'active') ?? null;
+  }
+
+  canConquerCell(coord: HexCoord, ownerId = 'player'): boolean {
+    const cell = this.findCell(coord);
+    if (!cell) {
+      return false;
+    }
+
+    return (
+      cell.type === 'dead' &&
+      !cell.ownerId &&
+      cell.conquestState !== 'active' &&
+      !this.getActiveConquestCell() &&
+      !this.hasOwnedCell(ownerId)
+    );
+  }
+
+  beginConquest(coord: HexCoord): HexCell | null {
+    if (!this.canConquerCell(coord)) {
+      return null;
+    }
+
+    const existing = this.getActiveConquestCell();
+    if (existing) {
+      existing.conquestState = undefined;
+    }
+
+    const target = this.findCell(coord);
+    if (!target) {
+      return null;
+    }
+
+    target.conquestState = 'active';
+    target.buildable = false;
+    return target;
+  }
+
+  clearActiveConquest(): void {
+    const active = this.getActiveConquestCell();
+    if (active?.conquestState === 'active') {
+      active.conquestState = undefined;
+    }
+  }
+
+  completeConquest(coord: HexCoord, ownerId = 'player'): HexCell | null {
+    const target = this.findCell(coord);
+    if (!target) {
+      return null;
+    }
+
+    target.ownerId = ownerId;
+    target.buildable = true;
+    target.conquestState = 'owned';
+    return target;
   }
 
   addFill(amount: number): ExpansionEvent | null {
@@ -49,7 +123,7 @@ export class HexWorld {
       tuning.expansionThresholdStep,
       this.chooseIndex,
     );
-    this.assignRandomPurifiedCell(expanded.event.newCells);
+    this.assignStrategicCells(expanded.event.newCells, expanded.stage);
 
     this.stage = expanded.stage;
     this.fillLevel = expanded.fillLevel;
@@ -59,14 +133,37 @@ export class HexWorld {
     return expanded.event;
   }
 
-  private assignRandomPurifiedCell(cells: HexCell[]): void {
-    if (cells.length === 0) {
-      return;
+  private assignStrategicCells(cells: HexCell[], stage: number): void {
+    const reservedCellKeys = new Set<string>();
+    const purifiedCell = this.assignRandomCellType(cells, 'purified');
+    if (purifiedCell) {
+      reservedCellKeys.add(`${purifiedCell.coord.q},${purifiedCell.coord.r}`);
+    }
+    if (stage >= 3) {
+      this.assignRandomCellType(cells, 'enriched', reservedCellKeys);
+    }
+  }
+
+  private assignRandomCellType(
+    cells: HexCell[],
+    type: HexCell['type'],
+    reservedCellKeys: ReadonlySet<string> = new Set<string>(),
+  ): HexCell | null {
+    const availableCells = cells.filter(
+      (cell) => !reservedCellKeys.has(`${cell.coord.q},${cell.coord.r}`),
+    );
+    if (availableCells.length === 0) {
+      return null;
     }
 
-    const index = this.chooseIndex(cells.length);
-    const safeIndex = Math.max(0, Math.min(cells.length - 1, index));
-    cells[safeIndex].type = 'purified';
+    const index = this.chooseIndex(availableCells.length);
+    const safeIndex = Math.max(0, Math.min(availableCells.length - 1, index));
+    const targetCell = availableCells[safeIndex] ?? null;
+    if (!targetCell) {
+      return null;
+    }
+    targetCell.type = type;
+    return targetCell;
   }
 
   private computeBounds(): WorldBounds {

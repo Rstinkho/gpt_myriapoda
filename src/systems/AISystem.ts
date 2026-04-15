@@ -1,6 +1,6 @@
 import * as planck from 'planck';
 import { tuning } from '@/game/tuning';
-import { Enemy, isLeechEnemy } from '@/entities/enemies/Enemy';
+import { Enemy, isLeechEnemy, isShellbackEnemy } from '@/entities/enemies/Enemy';
 import { Myriapoda } from '@/entities/myriapoda/Myriapoda';
 import {
   clampEnemyVelocity,
@@ -14,11 +14,27 @@ import {
   pickLeechLatchSlot,
   stepLeechState,
 } from '@/entities/enemies/leech';
+import {
+  clampPointToRadius,
+  createShellbackPatrolPoint,
+  createShellbackSteering,
+  getShellbackClawOrigin,
+  isWithinShellbackAggroRadius,
+  stepShellbackState,
+} from '@/entities/enemies/shellback/ShellbackAI';
 import type { DashStateSnapshot } from '@/game/types';
 import { vec2FromPixels, vec2ToPixels } from '@/physics/PhysicsUtils';
+import type { PlayerDamageSystem } from '@/systems/PlayerDamageSystem';
+
+type PlayerDamageResolver = Pick<
+  PlayerDamageSystem,
+  'applyShellbackStrike' | 'findShellbackStrikeTarget'
+>;
 
 export class AISystem {
   private elapsed = 0;
+
+  constructor(private readonly playerDamageSystem?: PlayerDamageResolver) {}
 
   update(
     enemies: Map<string, Enemy>,
@@ -27,6 +43,7 @@ export class AISystem {
   ): void {
     this.elapsed += tuning.fixedStepSeconds;
     const headPosition = myriapoda.head.body.getPosition();
+    const headPositionPixels = vec2ToPixels(headPosition);
     const headSpeedRatio = Math.min(
       1,
       Math.hypot(
@@ -77,6 +94,10 @@ export class AISystem {
             dashState,
           );
           break;
+
+        case 'shellback':
+          this.updateShellback(enemy, myriapoda, headPositionPixels);
+          break;
       }
     }
   }
@@ -88,6 +109,9 @@ export class AISystem {
     headSpeedRatio: number,
     dashState: DashStateSnapshot,
   ): void {
+    const speedMultiplier = enemy.speedMultiplier ?? 1;
+    const leechSeekForce = tuning.leechSeekForce * speedMultiplier;
+    const leechMaxSpeed = tuning.leechMaxSpeed * speedMultiplier;
     const currentPosition = enemy.body.getPosition();
     const currentPositionPixels = vec2ToPixels(currentPosition);
     const fallbackSlot =
@@ -190,7 +214,7 @@ export class AISystem {
       const velocity = enemy.body.getLinearVelocity();
       const clampedVelocity = clampEnemyVelocity(
         { x: velocity.x, y: velocity.y },
-        tuning.leechMaxSpeed,
+        leechMaxSpeed,
       );
       enemy.body.setLinearVelocity(planck.Vec2(clampedVelocity.x, clampedVelocity.y));
       return;
@@ -200,7 +224,7 @@ export class AISystem {
     const steering = createLeechSteering(
       { x: currentPosition.x, y: currentPosition.y },
       { x: targetMeters.x, y: targetMeters.y },
-      tuning.leechSeekForce,
+      leechSeekForce,
       this.elapsed,
       getLeechPhaseSeed(enemy.id),
     );
@@ -209,7 +233,7 @@ export class AISystem {
     const velocity = enemy.body.getLinearVelocity();
     const clampedVelocity = clampEnemyVelocity(
       { x: velocity.x, y: velocity.y },
-      tuning.leechMaxSpeed,
+      leechMaxSpeed,
     );
     enemy.body.setLinearVelocity(planck.Vec2(clampedVelocity.x, clampedVelocity.y));
     if (Math.hypot(clampedVelocity.x, clampedVelocity.y) > 0.01) {
@@ -219,5 +243,100 @@ export class AISystem {
       );
     }
     enemy.body.setAngularVelocity(0);
+  }
+
+  private updateShellback(
+    enemy: Extract<Enemy, { type: 'shellback' }>,
+    myriapoda: Myriapoda,
+    headPositionPixels: { x: number; y: number },
+  ): void {
+    const positionMeters = enemy.body.getPosition();
+    const positionPixels = vec2ToPixels(positionMeters);
+    const guardCenter = {
+      x: enemy.guardCenterX,
+      y: enemy.guardCenterY,
+    };
+    const hasAggro = isWithinShellbackAggroRadius(headPositionPixels, guardCenter);
+    const desiredPoint = hasAggro
+      ? clampPointToRadius(
+          headPositionPixels,
+          guardCenter,
+          tuning.shellbackGuardOrbitRadiusPx * 1.4,
+        )
+      : createShellbackPatrolPoint(
+          guardCenter,
+          this.elapsed,
+          enemy.phaseSeed,
+          tuning.shellbackGuardOrbitRadiusPx,
+        );
+    const desiredMeters = vec2FromPixels(desiredPoint.x, desiredPoint.y);
+    const steeringStrength =
+      enemy.shellState === 'shelled'
+        ? tuning.shellbackMoveForce * 0.55
+        : tuning.shellbackMoveForce;
+    const steering = createShellbackSteering(
+      { x: positionMeters.x, y: positionMeters.y },
+      { x: desiredMeters.x, y: desiredMeters.y },
+      steeringStrength,
+      this.elapsed,
+      enemy.phaseSeed,
+    );
+    enemy.body.applyForceToCenter(planck.Vec2(steering.forceX, steering.forceY), true);
+
+    const velocity = enemy.body.getLinearVelocity();
+    const clampedVelocity = clampEnemyVelocity(
+      { x: velocity.x, y: velocity.y },
+      enemy.shellState === 'shelled'
+        ? tuning.shellbackMaxSpeed * 0.55
+        : tuning.shellbackMaxSpeed,
+    );
+    enemy.body.setLinearVelocity(planck.Vec2(clampedVelocity.x, clampedVelocity.y));
+
+    const facingAngle = hasAggro
+      ? Math.atan2(
+          headPositionPixels.y - positionPixels.y,
+          headPositionPixels.x - positionPixels.x,
+        )
+      : Math.hypot(clampedVelocity.x, clampedVelocity.y) > 0.01
+        ? Math.atan2(clampedVelocity.y, clampedVelocity.x)
+        : Math.atan2(
+            desiredPoint.y - positionPixels.y,
+            desiredPoint.x - positionPixels.x,
+          );
+    enemy.body.setTransform(enemy.body.getPosition(), facingAngle);
+    enemy.body.setAngularVelocity(0);
+
+    const clawOrigin = getShellbackClawOrigin(positionPixels, facingAngle, enemy.activeClaw);
+    const strikeTarget = this.playerDamageSystem?.findShellbackStrikeTarget(
+      myriapoda,
+      clawOrigin,
+    ) ?? null;
+    const nextState = stepShellbackState(
+      {
+        shellState: enemy.shellState,
+        shellTimer: enemy.shellTimer,
+        attackState: enemy.attackState,
+        attackTimer: enemy.attackTimer,
+        attackTarget: enemy.attackTarget,
+        activeClaw: enemy.activeClaw,
+      },
+      {
+        deltaSeconds: tuning.fixedStepSeconds,
+        hasAggro,
+        strikeTarget: strikeTarget ? { x: strikeTarget.x, y: strikeTarget.y } : null,
+      },
+    );
+
+    enemy.shellState = nextState.shellState;
+    enemy.shellTimer = nextState.shellTimer;
+    enemy.attackState = nextState.attackState;
+    enemy.attackTimer = nextState.attackTimer;
+    enemy.attackTarget = nextState.attackTarget;
+    enemy.activeClaw = nextState.activeClaw;
+    enemy.isVulnerable = nextState.isVulnerable;
+
+    if (nextState.didStrike && this.playerDamageSystem) {
+      this.playerDamageSystem.applyShellbackStrike(myriapoda, clawOrigin);
+    }
   }
 }

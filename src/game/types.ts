@@ -8,8 +8,19 @@ export type PickupResourceId =
   | 'tissue'
   | 'structuralCell'
   | 'parasite';
-export type EnemyType = 'jellyfish' | 'leech';
-export type HexTypeId = 'dead' | 'restoring' | 'purified' | 'corrupted' | 'corridor';
+export type ResourceCost = Partial<Record<PickupResourceId, number>>;
+export type EnemyType = 'jellyfish' | 'leech' | 'shellback';
+export type ShellbackClawSide = 'left' | 'right';
+export type ShellbackShellState = 'exposed' | 'shelled';
+export type ShellbackAttackState = 'idle' | 'windup' | 'strike' | 'recover';
+export type HexConquestState = 'active' | 'owned';
+export type HexTypeId =
+  | 'dead'
+  | 'restoring'
+  | 'purified'
+  | 'enriched'
+  | 'corrupted'
+  | 'corridor';
 export type PlantType =
   | 'fiberPlant'
   | 'sparkBloom'
@@ -106,6 +117,17 @@ export interface HexCell {
   centerY: number;
   unlocked: boolean;
   type: HexTypeId;
+  ownerId?: string;
+  buildable?: boolean;
+  conquestState?: HexConquestState;
+}
+
+export interface EnemySpawnContext {
+  x: number;
+  y: number;
+  cell: HexCell;
+  guardCell?: HexCell;
+  enemySpeedMultiplier?: number;
 }
 
 export interface ExpansionEvent {
@@ -133,6 +155,7 @@ export interface WorldRenderSnapshot {
   hexSize: number;
   focusX: number;
   focusY: number;
+  conquest: ConquestProgressSnapshot | null;
 }
 
 export interface CameraImpulsePayload {
@@ -170,11 +193,19 @@ export interface UiStomachParasiteSnapshot {
   radius: number;
 }
 
+export interface ConquestProgressSnapshot {
+  coord: HexCoord;
+  occupiedSeconds: number;
+  occupiedGoalSeconds: number;
+  killCount: number;
+  killGoal: number;
+  playerInside: boolean;
+}
+
 export interface HudSnapshot {
   uiMode: UiMode;
   storedPickups: number;
-  spentPickups: number;
-  growthPickupGoal: number;
+  stomachCapacity: number;
   fillLevel: number;
   fillThreshold: number;
   stage: number;
@@ -191,6 +222,7 @@ export interface HudSnapshot {
   pickupCounts: Record<NutrientPickupTier, number>;
   activeParasiteCount: number;
   parasiteAlertProgress: number;
+  conquest: ConquestProgressSnapshot | null;
   stomachParticles: UiStomachParticleSnapshot[];
   stomachParasites: UiStomachParasiteSnapshot[];
   debug: boolean;
@@ -210,11 +242,28 @@ export type EvolutionPartId =
 
 export interface EvolutionMyriapodaSnapshot {
   segmentCount: number;
+  disabledLimbIndices: number[];
   stomachResources: PickupResourceId[];
   parasiteCount: number;
+  stomachCapacity: number;
 }
 
 export type EvolutionResourceCounts = Record<PickupResourceId, number>;
+
+export interface EvolutionWorldActionAvailability {
+  allowed: boolean;
+  reason?: string;
+}
+
+export interface EvolutionWorldActionResult {
+  success: boolean;
+  reason?: string;
+}
+
+export interface EvolutionWorldActionCallbacks {
+  canStartConquest: (coord: HexCoord | null) => EvolutionWorldActionAvailability;
+  startConquest: (coord: HexCoord) => EvolutionWorldActionResult;
+}
 
 export interface EvolutionSnapshot {
   myriapoda: EvolutionMyriapodaSnapshot;

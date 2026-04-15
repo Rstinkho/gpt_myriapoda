@@ -3,6 +3,7 @@ import {
   getEvolutionEnhancementTreeLayout,
   type RectLike,
 } from '@/evolution/evolutionLayout';
+import type { EvolutionUpgradeFamily } from '@/evolution/evolutionData';
 
 export class EvolutionEnhancementBranch {
   private readonly graphics: Phaser.GameObjects.Graphics;
@@ -16,7 +17,7 @@ export class EvolutionEnhancementBranch {
       y: 0,
       width: 600,
       height: 320,
-    }).nodes.length;
+    }, 'head').nodes.length;
 
     for (let i = 0; i < nodeCount; i += 1) {
       this.labels.push(
@@ -48,8 +49,8 @@ export class EvolutionEnhancementBranch {
     }
   }
 
-  layout(bounds: RectLike): void {
-    const layout = getEvolutionEnhancementTreeLayout(bounds);
+  layout(bounds: RectLike, family: EvolutionUpgradeFamily): void {
+    const layout = getEvolutionEnhancementTreeLayout(bounds, family);
 
     this.graphics.clear();
 

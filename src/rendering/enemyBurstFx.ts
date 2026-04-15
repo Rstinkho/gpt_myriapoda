@@ -1,5 +1,6 @@
 import type * as Phaser from 'phaser';
 import { jellyfishDefinition } from '@/entities/enemies/jellyfish/definition';
+import { shellbackDefinition } from '@/entities/enemies/shellback/definition';
 import { GameEvents } from '@/game/events';
 import { tuning } from '@/game/tuning';
 import type { EnemyType } from '@/game/types';
@@ -79,6 +80,18 @@ export function resolveEnemyFxPalette(enemyType: EnemyType): EnemyFxPalette {
         bubbleFill: 0xf6d9cf,
         bubbleOutline: 0xf9e5d9,
         glowColor: 0xe8b8b0,
+      };
+    case 'shellback':
+      return {
+        shardColors: [
+          shellbackDefinition.fleshColor,
+          shellbackDefinition.fleshLayerColor,
+          shellbackDefinition.clawColor,
+          shellbackDefinition.hitPointColor,
+        ],
+        bubbleFill: shellbackDefinition.fleshLayerColor,
+        bubbleOutline: shellbackDefinition.hitPointColor,
+        glowColor: shellbackDefinition.attackTelegraphColor,
       };
   }
 }

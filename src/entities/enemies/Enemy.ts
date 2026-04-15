@@ -1,5 +1,10 @@
 import type * as planck from 'planck';
-import type { EnemyType } from '@/game/types';
+import type {
+  EnemyType,
+  ShellbackAttackState,
+  ShellbackClawSide,
+  ShellbackShellState,
+} from '@/game/types';
 
 export interface EnemyBase {
   id: string;
@@ -7,6 +12,7 @@ export interface EnemyBase {
   body: planck.Body;
   health: number;
   radiusPx: number;
+  speedMultiplier?: number;
   updateVisual(deltaSeconds: number): void;
   destroy(world: planck.World): void;
 }
@@ -26,7 +32,22 @@ export interface LeechEnemyState extends EnemyBase {
   recoveryTimer: number;
 }
 
-export type Enemy = JellyfishEnemyState | LeechEnemyState;
+export interface ShellbackEnemyState extends EnemyBase {
+  type: 'shellback';
+  guardCellKey: string;
+  guardCenterX: number;
+  guardCenterY: number;
+  shellState: ShellbackShellState;
+  shellTimer: number;
+  attackState: ShellbackAttackState;
+  attackTimer: number;
+  attackTarget: { x: number; y: number } | null;
+  activeClaw: ShellbackClawSide;
+  isVulnerable: boolean;
+  phaseSeed: number;
+}
+
+export type Enemy = JellyfishEnemyState | LeechEnemyState | ShellbackEnemyState;
 
 export function isLeechEnemy(enemy: Enemy): enemy is LeechEnemyState {
   return enemy.type === 'leech';
@@ -34,4 +55,8 @@ export function isLeechEnemy(enemy: Enemy): enemy is LeechEnemyState {
 
 export function isLatchedLeech(enemy: Enemy): enemy is LeechEnemyState {
   return enemy.type === 'leech' && enemy.state === 'latched';
+}
+
+export function isShellbackEnemy(enemy: Enemy): enemy is ShellbackEnemyState {
+  return enemy.type === 'shellback';
 }

@@ -22,4 +22,8 @@ describe('EnemyDropRegistry', () => {
     expect(resolveEnemyDrops('leech', 0.5)).toEqual([]);
     expect(resolveEnemyDrops('leech', 0.1)).toEqual(['biomass']);
   });
+
+  it('gives shellbacks a modest guaranteed tissue drop', () => {
+    expect(resolveEnemyDrops('shellback', 0.5)).toEqual(['tissue', 'tissue']);
+  });
 });

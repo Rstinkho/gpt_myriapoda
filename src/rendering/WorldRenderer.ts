@@ -7,6 +7,7 @@ import { GraphicsMaskController } from '@/phaser/GraphicsMaskController';
 import {
   type BorderPoint,
   createExposedHexEdges,
+  createDashedLineSegments,
   createProgressBorderEdges,
   createProgressBorderSlice,
   createRegularHexPoints,
@@ -41,6 +42,7 @@ const worldBorderShadowDepth = 0.92;
 const worldBaseDepth = 1;
 /** Hex outlines sit above tile fills but below player, plants, pickups, and enemies (see GameScene ~4.8+, Pickup 6, plants 7, jellyfish 8, head 12). */
 const worldCellStrokeDepth = 4.5;
+const worldConquestHudDepth = 9.2;
 const worldRevealGlowRadiusPadding = 18;
 const worldRevealGlowAlpha = 0.14;
 const worldRevealGlowColor = 0x88edff;
@@ -50,6 +52,7 @@ export class WorldRenderer {
   private readonly cellGraphics: Phaser.GameObjects.Graphics;
   private readonly cellStrokeGraphics: Phaser.GameObjects.Graphics;
   private readonly borderShadowGraphics: Phaser.GameObjects.Graphics;
+  private readonly conquestHudGraphics: Phaser.GameObjects.Graphics;
   private readonly worldBorderMask: GraphicsMaskController;
   private fillPulse = 0;
   private displayFillProgress = 0;
@@ -72,6 +75,10 @@ export class WorldRenderer {
     this.borderShadowGraphics.setDepth(worldBorderShadowDepth);
     this.borderShadowGraphics.setScrollFactor(1);
     this.borderShadowGraphics.enableFilters();
+
+    this.conquestHudGraphics = scene.add.graphics();
+    this.conquestHudGraphics.setDepth(worldConquestHudDepth);
+    this.conquestHudGraphics.setScrollFactor(1);
 
     Phaser.Actions.AddEffectBloom(this.borderShadowGraphics, {
       threshold: tuning.worldBorderBloomThreshold,
@@ -113,6 +120,7 @@ export class WorldRenderer {
     this.cellGraphics.destroy();
     this.cellStrokeGraphics.destroy();
     this.borderShadowGraphics.destroy();
+    this.conquestHudGraphics.destroy();
   }
 
   getSpawnableCells(cells: HexCell[]): HexCell[] {
@@ -134,6 +142,7 @@ export class WorldRenderer {
     this.cellGraphics.clear();
     this.cellStrokeGraphics.clear();
     this.borderShadowGraphics.clear();
+    this.conquestHudGraphics.clear();
     this.worldBorderMask.clear();
     this.revealGlowGraphics.clear();
 
@@ -183,6 +192,11 @@ export class WorldRenderer {
       animation.revealProgress,
       expansionCyanRims,
     );
+    this.renderTerritoryOverlays(
+      this.cellStrokeGraphics,
+      visibleRenderCells,
+      snapshot.hexSize,
+    );
     if (expansionCyanRims) {
       const rimAlpha = animation.cyanPrime !== undefined ? animation.cyanPrime : 1;
       this.renderExpansionCyanPrimeOverlays(
@@ -196,9 +210,92 @@ export class WorldRenderer {
       this.drawWorldSilhouetteMask(silhouetteCells, snapshot.hexSize);
       this.renderBorder(this.borderShadowGraphics, silhouetteCells, snapshot.hexSize);
     }
+    this.renderConquestProgressBar(this.conquestHudGraphics, visibleRenderCells, snapshot);
 
     if (this.pendingExpansion && this.getExpansionProgress() >= 1) {
       this.pendingExpansion = null;
+    }
+  }
+
+  private renderTerritoryOverlays(
+    graphics: Phaser.GameObjects.Graphics,
+    cells: RenderCell[],
+    hexSize: number,
+  ): void {
+    const dashOffset = this.elapsed * tuning.conquerBorderDashTravelSpeed;
+
+    for (const cell of cells) {
+      if (!cell.conquestState) {
+        continue;
+      }
+
+      const radius = Math.max(4, (hexSize - tuning.worldCellInset) * cell.scale * 0.94);
+      const points = createRegularHexPoints(cell.centerX, cell.centerY, radius);
+
+      if (cell.conquestState === 'owned') {
+        graphics.fillStyle(
+          tuning.conquerBorderOwnedGlowColor,
+          0.09 * cell.alpha,
+        );
+        graphics.fillPoints(
+          createRegularHexPoints(cell.centerX, cell.centerY, radius * 1.12) as Phaser.Math.Vector2[],
+          true,
+        );
+        graphics.fillStyle(
+          tuning.conquerBorderOwnedFillColor,
+          0.22 * cell.alpha,
+        );
+        graphics.fillPoints(points as Phaser.Math.Vector2[], true);
+        graphics.lineStyle(
+          tuning.conquerBorderOwnedWidth + 2.4,
+          tuning.conquerBorderOwnedDarkColor,
+          0.58 * cell.alpha,
+        );
+        graphics.strokePoints(points as Phaser.Math.Vector2[], true, true);
+        graphics.lineStyle(
+          tuning.conquerBorderOwnedWidth,
+          tuning.conquerBorderOwnedColor,
+          0.88 * cell.alpha,
+        );
+        graphics.strokePoints(points as Phaser.Math.Vector2[], true, true);
+        graphics.lineStyle(
+          tuning.conquerBorderOwnedWidth * 0.42,
+          tuning.conquerBorderOwnedCoreColor,
+          0.94 * cell.alpha,
+        );
+        graphics.strokePoints(points as Phaser.Math.Vector2[], true, true);
+        continue;
+      }
+
+      for (let side = 0; side < HEX_NEIGHBOR_DIRECTIONS.length; side += 1) {
+        const dashedSegments = createDashedLineSegments(
+          points[side],
+          points[(side + 1) % points.length],
+          tuning.conquerBorderDashLengthPx,
+          tuning.conquerBorderGapLengthPx,
+          dashOffset + side * (tuning.conquerBorderGapLengthPx * 0.7),
+        );
+        for (const segment of dashedSegments) {
+          graphics.lineStyle(
+            tuning.conquerBorderAnimatedWidth + 2,
+            tuning.conquerBorderDarkColor,
+            0.44 * cell.alpha,
+          );
+          graphics.lineBetween(segment.start.x, segment.start.y, segment.end.x, segment.end.y);
+          graphics.lineStyle(
+            tuning.conquerBorderAnimatedWidth,
+            tuning.conquerBorderActiveColor,
+            0.92 * cell.alpha,
+          );
+          graphics.lineBetween(segment.start.x, segment.start.y, segment.end.x, segment.end.y);
+          graphics.lineStyle(
+            Math.max(1.4, tuning.conquerBorderAnimatedWidth * 0.36),
+            tuning.conquerBorderCoreColor,
+            0.96 * cell.alpha,
+          );
+          graphics.lineBetween(segment.start.x, segment.start.y, segment.end.x, segment.end.y);
+        }
+      }
     }
   }
 
@@ -208,6 +305,92 @@ export class WorldRenderer {
     }
 
     return Math.max(0, Math.min(1, this.pendingExpansion.elapsed / tuning.expansionAnimationSeconds));
+  }
+
+  private renderConquestProgressBar(
+    graphics: Phaser.GameObjects.Graphics,
+    cells: RenderCell[],
+    snapshot: WorldRenderSnapshot,
+  ): void {
+    const conquest = snapshot.conquest;
+    if (!conquest) {
+      return;
+    }
+
+    const targetCell = cells.find(
+      (cell) => cell.coord.q === conquest.coord.q && cell.coord.r === conquest.coord.r,
+    );
+    if (!targetCell) {
+      return;
+    }
+
+    const radius = Math.max(4, (snapshot.hexSize - tuning.worldCellInset) * targetCell.scale * 0.94);
+    const topY =
+      targetCell.centerY - radius - tuning.conquerProgressBarOffsetYPx - tuning.conquerProgressBarHeightPx;
+    const leftX = targetCell.centerX - tuning.conquerProgressBarWidthPx * 0.5;
+    const timeProgress = Math.max(
+      0,
+      Math.min(1, conquest.occupiedSeconds / Math.max(0.0001, conquest.occupiedGoalSeconds)),
+    );
+    const killProgress = Math.max(
+      0,
+      Math.min(1, conquest.killCount / Math.max(1, conquest.killGoal)),
+    );
+    const pulse = conquest.playerInside
+      ? 0.72 + Math.sin(this.elapsed * 6.2) * 0.12
+      : 0.36;
+
+    graphics.fillStyle(tuning.conquerBorderDarkColor, 0.24 + pulse * 0.08);
+    graphics.fillRoundedRect(
+      leftX - 5,
+      topY - 5,
+      tuning.conquerProgressBarWidthPx + 10,
+      tuning.conquerProgressBarHeightPx + 10,
+      10,
+    );
+
+    graphics.fillStyle(tuning.conquerProgressRailColor, 0.92);
+    graphics.fillRoundedRect(
+      leftX,
+      topY,
+      tuning.conquerProgressBarWidthPx,
+      tuning.conquerProgressBarHeightPx,
+      8,
+    );
+
+    const laneInset = 3;
+    const laneGap = 2;
+    const laneHeight =
+      (tuning.conquerProgressBarHeightPx - laneInset * 2 - laneGap) * 0.5;
+    const innerWidth = tuning.conquerProgressBarWidthPx - laneInset * 2;
+
+    graphics.fillStyle(
+      tuning.conquerProgressTimeColor,
+      conquest.playerInside ? 0.9 : 0.54,
+    );
+    graphics.fillRect(
+      leftX + laneInset,
+      topY + laneInset,
+      innerWidth * timeProgress,
+      laneHeight,
+    );
+
+    graphics.fillStyle(tuning.conquerProgressKillColor, 0.82);
+    graphics.fillRect(
+      leftX + laneInset,
+      topY + laneInset + laneHeight + laneGap,
+      innerWidth * killProgress,
+      laneHeight,
+    );
+
+    graphics.lineStyle(1.2, tuning.conquerProgressOutlineColor, 0.94);
+    graphics.strokeRoundedRect(
+      leftX,
+      topY,
+      tuning.conquerProgressBarWidthPx,
+      tuning.conquerProgressBarHeightPx,
+      8,
+    );
   }
 
   private createRenderCells(

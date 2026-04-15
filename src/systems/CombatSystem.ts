@@ -2,7 +2,7 @@ import * as Phaser from 'phaser';
 import * as planck from 'planck';
 import { tuning } from '@/game/tuning';
 import { GameEvents } from '@/game/events';
-import { Enemy, isLatchedLeech } from '@/entities/enemies/Enemy';
+import { Enemy, isLatchedLeech, isShellbackEnemy } from '@/entities/enemies/Enemy';
 import { Myriapoda } from '@/entities/myriapoda/Myriapoda';
 import type { LimbRuntime } from '@/entities/myriapoda/LimbController';
 import { CollisionRegistry } from '@/physics/CollisionRegistry';
@@ -13,10 +13,15 @@ export function getEnemyTargetPriority(enemy: Enemy): number {
   return isLatchedLeech(enemy) ? 1 : 0;
 }
 
+export function canEnemyReceiveLimbDamage(enemy: Enemy): boolean {
+  return !isShellbackEnemy(enemy) || enemy.isVulnerable;
+}
+
 export class CombatSystem {
   private attackCooldown = 0;
   private activeLimbId: string | null = null;
   private activeEnemyId: string | null = null;
+  private activeLimbHitResolved = false;
 
   constructor(private readonly eventBus: Phaser.Events.EventEmitter) {}
 
@@ -32,10 +37,26 @@ export class CombatSystem {
     let activeLimb = this.activeLimbId
       ? myriapoda.limbs.limbs.find((limb) => limb.id === this.activeLimbId) ?? null
       : null;
+    if (activeLimb && !activeLimb.body) {
+      this.activeLimbId = null;
+      this.activeEnemyId = null;
+      this.activeLimbHitResolved = false;
+      activeLimb = null;
+      targetEnemy = null;
+    }
     if (activeLimb && targetEnemy && !this.isEnemyInLimbStrikeCone(myriapoda, activeLimb, targetEnemy)) {
       myriapoda.limbs.releaseAttack(activeLimb.id);
       this.activeLimbId = null;
       this.activeEnemyId = null;
+      this.activeLimbHitResolved = false;
+      activeLimb = null;
+      targetEnemy = null;
+    }
+    if (activeLimb && targetEnemy && !canEnemyReceiveLimbDamage(targetEnemy)) {
+      myriapoda.limbs.releaseAttack(activeLimb.id);
+      this.activeLimbId = null;
+      this.activeEnemyId = null;
+      this.activeLimbHitResolved = false;
       activeLimb = null;
       targetEnemy = null;
     }
@@ -43,15 +64,18 @@ export class CombatSystem {
       myriapoda.limbs.releaseAttack(activeLimb.id);
       this.activeLimbId = null;
       this.activeEnemyId = null;
+      this.activeLimbHitResolved = false;
       activeLimb = null;
     }
     if (
       activeLimb &&
-      (activeLimb.state.name === 'retract' ||
+      (activeLimb.state.name === 'hit' ||
+        activeLimb.state.name === 'retract' ||
         (activeLimb.state.name === 'idle' && activeLimb.state.timer > 0))
     ) {
       this.activeLimbId = null;
       this.activeEnemyId = null;
+      this.activeLimbHitResolved = false;
       activeLimb = null;
       targetEnemy = null;
     }
@@ -67,6 +91,9 @@ export class CombatSystem {
         let highestPriority = Number.NEGATIVE_INFINITY;
         let nearestDistanceSq = Number.POSITIVE_INFINITY;
         for (const enemy of enemies.values()) {
+          if (!canEnemyReceiveLimbDamage(enemy)) {
+            continue;
+          }
           const enemyPosition = enemy.body.getPosition();
           const enemyPositionPixels = vec2ToPixels(enemyPosition);
           const distanceSq =
@@ -88,6 +115,7 @@ export class CombatSystem {
         if (nearestEnemyForLimb) {
           this.activeLimbId = limb.id;
           this.activeEnemyId = nearestEnemyForLimb.id;
+          this.activeLimbHitResolved = false;
           activeLimb = limb;
           targetEnemy = nearestEnemyForLimb;
           break;
@@ -109,16 +137,27 @@ export class CombatSystem {
 
     const hits = collisions.drainLimbHits();
     const hitLimbIds = new Set<string>();
+    const resolvedLimbIds = new Set<string>();
     for (const hit of hits) {
-      if (this.activeLimbId && hit.limbId !== this.activeLimbId) {
+      if (!this.activeLimbId || hit.limbId !== this.activeLimbId) {
+        continue;
+      }
+      if (this.activeLimbHitResolved) {
+        continue;
+      }
+      if (resolvedLimbIds.has(hit.limbId)) {
         continue;
       }
       const enemy = enemies.get(hit.enemyId);
-      if (!enemy) {
+      if (!enemy || !canEnemyReceiveLimbDamage(enemy)) {
         continue;
       }
       enemy.health = Math.max(0, enemy.health - tuning.limbDamage);
       hitLimbIds.add(hit.limbId);
+      resolvedLimbIds.add(hit.limbId);
+      if (this.activeLimbId === hit.limbId) {
+        this.activeLimbHitResolved = true;
+      }
       this.eventBus.emit(GameEvents.cameraImpulse, {
         duration: 0.12,
         zoom: tuning.cameraHitZoom,
@@ -140,6 +179,7 @@ export class CombatSystem {
         myriapoda.limbs.releaseAttack(hit.limbId);
         this.activeLimbId = null;
         this.activeEnemyId = null;
+        this.activeLimbHitResolved = false;
       }
     }
 

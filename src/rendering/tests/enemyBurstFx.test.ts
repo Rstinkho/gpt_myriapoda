@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { jellyfishDefinition } from '@/entities/enemies/jellyfish/definition';
+import { shellbackDefinition } from '@/entities/enemies/shellback/definition';
 import {
   advanceEnemyBurst,
   createEnemyBurst,
@@ -17,6 +18,11 @@ describe('enemyBurstFx', () => {
       glowColor: 0xe8b8b0,
       bubbleFill: 0xf6d9cf,
       bubbleOutline: 0xf9e5d9,
+    });
+    expect(resolveEnemyFxPalette('shellback')).toMatchObject({
+      glowColor: shellbackDefinition.attackTelegraphColor,
+      bubbleFill: shellbackDefinition.fleshLayerColor,
+      bubbleOutline: shellbackDefinition.hitPointColor,
     });
   });
 

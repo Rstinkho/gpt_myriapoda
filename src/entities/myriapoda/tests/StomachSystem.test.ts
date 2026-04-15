@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { StomachSystem } from '@/entities/myriapoda/StomachSystem';
 import { tuning } from '@/game/tuning';
 
-describe('StomachSystem parasites', () => {
+describe('StomachSystem', () => {
   it('stores parasites separately from nutrient particles', () => {
     const stomach = new StomachSystem();
 
@@ -11,25 +11,71 @@ describe('StomachSystem parasites', () => {
 
     expect(stomach.particles).toHaveLength(1);
     expect(stomach.parasites).toHaveLength(1);
-    expect(stomach.biomass).toBe(2);
+    expect(stomach.getResourceCounts()).toEqual({
+      biomass: 1,
+      tissue: 0,
+      structuralCell: 0,
+      parasite: 1,
+    });
   });
 
-  it('exposes stored-particle helpers for external stomach drainers', () => {
+  it('caps nutrient storage at fifty while still accepting parasites', () => {
     const stomach = new StomachSystem();
 
-    expect(stomach.hasStoredParticles()).toBe(false);
-    expect(stomach.consumeOldestStoredParticle()).toBe(false);
+    for (let index = 0; index < tuning.stomachNutrientCapacity; index += 1) {
+      expect(stomach.tryAdd('biomass')).toBe(true);
+    }
 
+    expect(stomach.tryAdd('biomass')).toBe(false);
+    expect(stomach.particles).toHaveLength(tuning.stomachNutrientCapacity);
+
+    expect(stomach.tryAdd('parasite')).toBe(true);
+    expect(stomach.parasites).toHaveLength(1);
+  });
+
+  it('spends only the requested stored resources in oldest-first order', () => {
+    const stomach = new StomachSystem();
+    stomach.add('biomass');
+    stomach.add('tissue');
+    stomach.add('biomass');
+    stomach.add('structuralCell');
+
+    expect(
+      stomach.spend({
+        biomass: 2,
+        tissue: 1,
+      }),
+    ).toBe(true);
+
+    expect(stomach.particles.map((particle) => particle.resourceId)).toEqual([
+      'structuralCell',
+    ]);
+    expect(stomach.getResourceCounts()).toEqual({
+      biomass: 0,
+      tissue: 0,
+      structuralCell: 1,
+      parasite: 0,
+    });
+  });
+
+  it('does not mutate storage on failed spend', () => {
+    const stomach = new StomachSystem();
     stomach.add('biomass');
     stomach.add('tissue');
 
-    expect(stomach.hasStoredParticles()).toBe(true);
-    expect(stomach.consumeOldestStoredParticle()).toBe(true);
-    expect(stomach.particles).toHaveLength(1);
-    expect(stomach.biomass).toBe(3);
+    expect(
+      stomach.spend({
+        biomass: 2,
+      }),
+    ).toBe(false);
+
+    expect(stomach.particles.map((particle) => particle.resourceId)).toEqual([
+      'biomass',
+      'tissue',
+    ]);
   });
 
-  it('consumes the oldest nutrient pickup every two seconds for twenty seconds', () => {
+  it('consumes the oldest nutrient pickup every two seconds for active parasites', () => {
     const stomach = new StomachSystem();
     stomach.add('biomass');
     stomach.add('tissue');
@@ -41,60 +87,9 @@ describe('StomachSystem parasites', () => {
       'tissue',
       'structuralCell',
     ]);
-    expect(stomach.biomass).toBe(7);
-    expect(stomach.digestedTotal).toBe(0);
-    expect(stomach.consumedPickupTotal).toBe(0);
 
     stomach.step(4);
     expect(stomach.particles).toHaveLength(0);
-    expect(stomach.biomass).toBe(0);
     expect(stomach.parasites).toHaveLength(1);
-
-    stomach.step(14);
-    expect(stomach.parasites).toHaveLength(0);
-  });
-
-  it('stacks parasites independently and keeps blinking state while active', () => {
-    const stomach = new StomachSystem();
-    stomach.add('biomass');
-    stomach.add('biomass');
-    stomach.add('biomass');
-    stomach.add('parasite');
-    stomach.add('parasite');
-
-    stomach.step(2);
-
-    expect(stomach.particles).toHaveLength(1);
-    expect(stomach.parasites).toHaveLength(2);
-    expect(stomach.getActiveParasiteCount()).toBe(2);
-    expect(stomach.getParasiteAlertProgress()).toBeGreaterThan(0);
-    expect(stomach.getUiParasiteSnapshots()).toHaveLength(2);
-  });
-
-  it('lets parasites expire even when there are no nutrients left to eat', () => {
-    const stomach = new StomachSystem();
-    stomach.add('parasite');
-
-    for (let elapsed = 0; elapsed < tuning.parasiteLifetimeSeconds; elapsed += 1) {
-      stomach.step(1);
-    }
-
-    expect(stomach.particles).toHaveLength(0);
-    expect(stomach.parasites).toHaveLength(0);
-    expect(stomach.biomass).toBe(0);
-    expect(stomach.getParasiteAlertProgress()).toBe(0);
-  });
-
-  it('drains stored particles on the leech cadence without touching digested totals', () => {
-    const stomach = new StomachSystem();
-    stomach.add('biomass');
-    stomach.add('tissue');
-
-    expect(stomach.consumeOldestStoredParticle()).toBe(true);
-
-    expect(stomach.particles).toHaveLength(1);
-    expect(stomach.biomass).toBe(3);
-    expect(stomach.digestedTotal).toBe(0);
-    expect(stomach.consumedPickupTotal).toBe(0);
   });
 });

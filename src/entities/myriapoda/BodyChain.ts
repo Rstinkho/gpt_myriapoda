@@ -6,6 +6,7 @@ import { lerp } from '@/utils/math';
 
 export class BodyChain {
   segments: Segment[];
+  unlockedSegmentCount: number;
 
   constructor(initialX: number, initialY: number) {
     this.segments = Array.from({ length: tuning.initialSegments }, (_, index) => {
@@ -17,6 +18,7 @@ export class BodyChain {
         radius: lerp(tuning.segmentRadiusStart, tuning.segmentRadiusEnd, t),
       };
     });
+    this.unlockedSegmentCount = this.segments.length;
   }
 
   update(
@@ -96,6 +98,48 @@ export class BodyChain {
   }
 
   addSegment(): void {
+    this.addSegmentInternal(true);
+  }
+
+  hasLostSegments(): boolean {
+    return this.segments.length < this.unlockedSegmentCount;
+  }
+
+  restoreLostSegment(): boolean {
+    if (!this.hasLostSegments()) {
+      return false;
+    }
+
+    this.addSegmentInternal(false);
+    return true;
+  }
+
+  getRemovableSegmentIndices(): number[] {
+    if (this.segments.length <= 1) {
+      return [];
+    }
+
+    const stomachIndex = this.getStomachSegmentIndex();
+    const removable: number[] = [];
+    for (let index = 0; index < this.segments.length; index += 1) {
+      if (index === stomachIndex) {
+        continue;
+      }
+      removable.push(index);
+    }
+    return removable;
+  }
+
+  removeSegmentAt(index: number): boolean {
+    if (!this.getRemovableSegmentIndices().includes(index)) {
+      return false;
+    }
+
+    this.segments.splice(index, 1);
+    return true;
+  }
+
+  private addSegmentInternal(trackUnlock: boolean): void {
     const last = this.segments[this.segments.length - 1];
     this.segments.push({
       ...last,
@@ -103,6 +147,9 @@ export class BodyChain {
       y: last.y - Math.sin(last.angle) * tuning.segmentSpacing,
       radius: Math.max(tuning.segmentRadiusEnd, last.radius - 1.2),
     });
+    if (trackUnlock) {
+      this.unlockedSegmentCount = this.segments.length;
+    }
   }
 
   private applyDashMotion(

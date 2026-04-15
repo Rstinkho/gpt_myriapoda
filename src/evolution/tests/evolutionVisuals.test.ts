@@ -13,12 +13,15 @@ describe('evolutionVisuals', () => {
 
   it('provides brighter strategic hex styles while preserving type distinction', () => {
     const purified = getEvolutionStrategicHexStyle('purified');
+    const enriched = getEvolutionStrategicHexStyle('enriched');
     const corrupted = getEvolutionStrategicHexStyle('corrupted');
     const dead = getEvolutionStrategicHexStyle('dead');
 
     expect(purified.fillAlpha).toBeGreaterThan(0.5);
+    expect(enriched.glowAlpha).toBeGreaterThan(0.2);
     expect(corrupted.strokeAlpha).toBeGreaterThan(0.8);
     expect(dead.contourAlpha).toBeGreaterThan(0.4);
     expect(purified.fillColor).not.toBe(corrupted.fillColor);
+    expect(enriched.fillColor).not.toBe(purified.fillColor);
   });
 });

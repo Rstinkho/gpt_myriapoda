@@ -58,6 +58,9 @@ export class EvolutionMyriapodaPreview {
     while (this.myriapoda.body.segments.length < snapshot.segmentCount) {
       this.myriapoda.body.addSegment();
     }
+    for (const disabledLimbIndex of snapshot.disabledLimbIndices) {
+      this.myriapoda.limbs.destroyLimb(`limb-${disabledLimbIndex + 1}`);
+    }
     for (const resourceId of snapshot.stomachResources) {
       this.myriapoda.stomach.add(resourceId);
     }
@@ -257,6 +260,9 @@ export class EvolutionMyriapodaPreview {
     ];
 
     for (const limb of this.myriapoda.limbs.limbs) {
+      if (!limb.body) {
+        continue;
+      }
       const root = vec2ToPixels(limb.body.root.getPosition());
       const tip = vec2ToPixels(limb.body.tip.getPosition());
       regions.push({

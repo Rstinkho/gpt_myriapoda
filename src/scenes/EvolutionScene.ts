@@ -1,6 +1,10 @@
 import * as Phaser from 'phaser';
 import { EvolutionEnhancementBranch } from '@/evolution/EvolutionEnhancementBranch';
 import {
+  getEvolutionUpgradeFamily,
+  type EvolutionWorldActionId,
+} from '@/evolution/evolutionData';
+import {
   computeEvolutionContentSplit,
   evolutionToolbarResourceIds,
   getEvolutionMyriapodaPanelLayout,
@@ -14,11 +18,18 @@ import { EvolutionWorldBuildingsPanel } from '@/evolution/EvolutionWorldBuilding
 import { EvolutionWorldView } from '@/evolution/EvolutionWorldView';
 import { closeEvolutionOverlay } from '@/evolution/overlayLifecycle';
 import { getPickupDefinition } from '@/entities/pickups/PickupRegistry';
-import type { EvolutionSection, EvolutionSnapshot, WorldRightPanelView } from '@/game/types';
+import type {
+  EvolutionSection,
+  EvolutionSnapshot,
+  EvolutionWorldActionAvailability,
+  EvolutionWorldActionCallbacks,
+  WorldRightPanelView,
+} from '@/game/types';
 import { getHexTypeDefinition } from '@/game/hexTypes';
 
 interface EvolutionSceneData {
   snapshot: EvolutionSnapshot;
+  worldActions?: EvolutionWorldActionCallbacks;
 }
 
 const TAB_MYRIAPODA_W = 272;
@@ -86,9 +97,13 @@ export class EvolutionScene extends Phaser.Scene {
   private lowerPanelBounds = new Phaser.Geom.Rectangle();
   private worldStatsBounds = new Phaser.Geom.Rectangle();
   private worldActionsBounds = new Phaser.Geom.Rectangle();
+  private worldBuildingsBounds = new Phaser.Geom.Rectangle();
   private headerSeparator = { x: 0, y1: 0, y2: 0 };
   private contentTopY = 0;
   private closing = false;
+  private worldActionCallbacks?: EvolutionWorldActionCallbacks;
+  private armedWorldAction: EvolutionWorldActionId | null = null;
+  private worldActionMessage = '';
 
   constructor() {
     super('EvolutionScene');
@@ -96,12 +111,15 @@ export class EvolutionScene extends Phaser.Scene {
 
   init(data: EvolutionSceneData): void {
     this.snapshot = data.snapshot;
+    this.worldActionCallbacks = data.worldActions;
     this.section = 'myriapoda';
     this.hoveredTab = null;
     this.hoveredWorldSubTab = null;
     this.worldRightPanel = 'actions';
     this.closeHovered = false;
     this.closing = false;
+    this.armedWorldAction = null;
+    this.worldActionMessage = '';
     this.resourceSlotBounds = evolutionToolbarResourceIds.map(() => new Phaser.Geom.Rectangle());
   }
 
@@ -116,7 +134,9 @@ export class EvolutionScene extends Phaser.Scene {
     this.preview = new EvolutionMyriapodaPreview(this, this.snapshot.myriapoda);
     this.worldView = new EvolutionWorldView(this, this.snapshot.world);
     this.enhancementBranch = new EvolutionEnhancementBranch(this);
-    this.worldActionCards = new EvolutionWorldActionCards(this);
+    this.worldActionCards = new EvolutionWorldActionCards(this, (actionId) =>
+      this.handleWorldActionSelected(actionId),
+    );
     this.worldBuildingsPanel = new EvolutionWorldBuildingsPanel(this);
 
     this.worldActionsSubTab = this.createWorldSubTabLabel('ACTIONS');
@@ -243,6 +263,7 @@ export class EvolutionScene extends Phaser.Scene {
     this.input.on('wheel', this.handleWheel, this);
     this.handleResize();
     this.updateSectionVisibility();
+    this.refreshWorldActionCards();
   }
 
   update(_time: number, deltaMs: number): void {
@@ -337,8 +358,13 @@ export class EvolutionScene extends Phaser.Scene {
 
   private setWorldRightPanelView(view: WorldRightPanelView): void {
     this.worldRightPanel = view;
+    if (view !== 'actions') {
+      this.armedWorldAction = null;
+      this.worldActionMessage = '';
+    }
     this.updateSectionVisibility();
     this.handleResize();
+    this.refreshWorldActionCards();
     this.renderChrome();
     this.refreshContextPanel();
   }
@@ -347,9 +373,12 @@ export class EvolutionScene extends Phaser.Scene {
     this.section = section;
     if (section === 'myriapoda') {
       this.hoveredWorldSubTab = null;
+      this.armedWorldAction = null;
+      this.worldActionMessage = '';
     }
     this.updateSectionVisibility();
     this.handleResize();
+    this.refreshWorldActionCards();
     this.renderChrome();
     this.refreshContextPanel();
   }
@@ -368,6 +397,31 @@ export class EvolutionScene extends Phaser.Scene {
     this.worldBuildingsSubTab?.setVisible(worldVisible);
     this.worldActionsSubTabHit?.setVisible(worldVisible);
     this.worldBuildingsSubTabHit?.setVisible(worldVisible);
+  }
+
+  private handleWorldActionSelected(actionId: EvolutionWorldActionId): void {
+    this.armedWorldAction = this.armedWorldAction === actionId ? null : actionId;
+    this.worldActionMessage =
+      this.armedWorldAction === 'conquer'
+        ? 'Pick a dead hex in the world map.'
+        : '';
+    this.refreshWorldActionCards();
+    this.refreshContextPanel();
+  }
+
+  private refreshWorldActionCards(): void {
+    const availability = new Map<EvolutionWorldActionId, EvolutionWorldActionAvailability>();
+    availability.set(
+      'conquer',
+      this.worldActionCallbacks?.canStartConquest(null) ?? {
+        allowed: false,
+        reason: 'World actions unavailable.',
+      },
+    );
+    availability.set('probe', { allowed: false, reason: 'Locked' });
+    availability.set('seed', { allowed: false, reason: 'Locked' });
+    availability.set('anchor', { allowed: false, reason: 'Locked' });
+    this.worldActionCards?.setCardState(this.armedWorldAction, availability);
   }
 
   private handleResize(): void {
@@ -471,7 +525,10 @@ export class EvolutionScene extends Phaser.Scene {
       myriapodaPanel.lowerPanel.width,
       myriapodaPanel.lowerPanel.height,
     );
-    this.enhancementBranch?.layout(this.lowerPanelBounds);
+    this.enhancementBranch?.layout(
+      this.lowerPanelBounds,
+      getEvolutionUpgradeFamily(this.preview?.getFocusedPart()?.id ?? null),
+    );
 
     if (this.section === 'world') {
       const worldTabBarH = WORLD_RIGHT_SUBTAB_TOP_PAD + WORLD_RIGHT_SUBTAB_H;
@@ -495,7 +552,14 @@ export class EvolutionScene extends Phaser.Scene {
         WORLD_RIGHT_SUBTAB_GAP_AFTER,
       );
       const wb = getEvolutionWorldBuildingsViewLayout(worldContent);
+      this.worldBuildingsBounds.setTo(
+        wb.buildingsSection.x,
+        wb.buildingsSection.y,
+        wb.buildingsSection.width,
+        wb.buildingsSection.height,
+      );
       /** Always place building tiles from current 30% column; otherwise they stay at (0,0). */
+      this.worldBuildingsPanel?.setSelectedHexBuildable(!!this.worldView?.getFocusedCell()?.buildable);
       this.worldBuildingsPanel?.layout(wb.buildingsSection);
 
       if (this.worldRightPanel === 'actions') {
@@ -521,6 +585,7 @@ export class EvolutionScene extends Phaser.Scene {
     }
 
     this.footerHint?.setPosition(outerX + 32, outerY + outerHeight - 34);
+    this.refreshWorldActionCards();
     this.renderChrome();
     this.refreshContextPanel();
   }
@@ -700,6 +765,7 @@ export class EvolutionScene extends Phaser.Scene {
     if (this.section === 'myriapoda') {
       const focused = this.preview?.getFocusedPart();
       const focusedName = this.preview?.getFocusedPartName() ?? 'Select a body part';
+      const family = getEvolutionUpgradeFamily(focused?.id ?? null);
       this.sectionHeading.setText('MYRIAPODA DEVELOPMENT');
       this.updateSectionBadgeBounds();
       this.contextTitle.setVisible(true);
@@ -707,14 +773,15 @@ export class EvolutionScene extends Phaser.Scene {
       this.contextTitle.setText(focusedName.toUpperCase());
       this.contextBody.setText(
         focused
-          ? 'Adaptive tissue socket selected.\nPlaceholder mutation nodes radiate from this focus and stay presentation-only in this pass.'
+          ? 'Selected anatomy routes into a priced upgrade family. These nodes are preview-only in this pass, but their costs now differ by body system.'
           : 'Hover or click the animated myriapoda preview to inspect the head, limbs, tail, stomach, and each body circle individually.',
       );
       this.contextStats.setText(
         [
           `SEGMENTS: ${this.snapshot.myriapoda.segmentCount}`,
-          `STORED MATTER: ${this.snapshot.myriapoda.stomachResources.length}`,
+          `STORED MATTER: ${this.snapshot.myriapoda.stomachResources.length}/${this.snapshot.myriapoda.stomachCapacity}`,
           `PARASITES: ${this.snapshot.myriapoda.parasiteCount}`,
+          `UPGRADE FAMILY: ${family.toUpperCase()}`,
           `FOCUS: ${focused ? focused.label : 'None'}`,
         ].join('\n'),
       );
@@ -724,6 +791,7 @@ export class EvolutionScene extends Phaser.Scene {
       this.contextStats.setVisible(true);
       this.contextStats.setPosition(this.statsCardBounds.x + 18, this.statsCardBounds.y + 22);
       this.contextStats.setWordWrapWidth(this.statsCardBounds.width - 36);
+      this.enhancementBranch?.layout(this.lowerPanelBounds, family);
       this.footerHint.setText('CLICK TO PIN A BODY PART  |  E / ESC CLOSE');
       this.renderChrome();
       return;
@@ -731,6 +799,17 @@ export class EvolutionScene extends Phaser.Scene {
 
     const focusedCell = this.worldView?.getFocusedCell();
     const cellType = focusedCell ? getHexTypeDefinition(focusedCell.type) : null;
+    const buildable = !!focusedCell?.buildable;
+    const territoryState =
+      focusedCell?.conquestState === 'active'
+        ? 'CONQUERING'
+        : focusedCell?.conquestState === 'owned'
+          ? 'OWNED'
+          : 'UNCLAIMED';
+    this.worldBuildingsPanel?.setSelectedHexBuildable(buildable);
+    if (this.worldBuildingsBounds.width > 0 && this.worldBuildingsBounds.height > 0) {
+      this.worldBuildingsPanel?.layout(this.worldBuildingsBounds);
+    }
     this.sectionHeading.setText('WORLD STRATEGIC VIEW');
     this.updateSectionBadgeBounds();
     this.contextTitle.setVisible(false);
@@ -742,14 +821,21 @@ export class EvolutionScene extends Phaser.Scene {
         [
           `HEX: ${focusedCell ? `${focusedCell.coord.q}, ${focusedCell.coord.r}` : 'None'}`,
           `HEX TYPE: ${cellType ? cellType.id.toUpperCase() : 'None'}`,
+          `STATUS: ${focusedCell ? territoryState : 'None'}`,
+          `BUILDABLE: ${focusedCell ? (buildable ? 'YES' : 'NO') : 'NO'}`,
           `WORLD STAGE: ${this.snapshot.world.stage}`,
           `FILL: ${this.snapshot.world.fillLevel}/${this.snapshot.world.fillThreshold}`,
+          `ACTION: ${this.worldActionMessage || (this.armedWorldAction === 'conquer' ? 'Pick a dead hex.' : 'Select an action card.')}`,
         ].join('\n'),
       );
       this.contextStats.setPosition(this.worldStatsBounds.x + 18, this.worldStatsBounds.y + 20);
       this.contextStats.setWordWrapWidth(this.worldStatsBounds.width - 36);
     }
-    this.footerHint.setText('WHEEL TO ZOOM  |  DRAG TO PAN  |  CLICK TO PIN  |  E / ESC CLOSE');
+    this.footerHint.setText(
+      this.armedWorldAction === 'conquer'
+        ? 'CLICK A DEAD HEX TO START CONQUEST  |  WHEEL TO ZOOM  |  DRAG TO PAN'
+        : 'WHEEL TO ZOOM  |  DRAG TO PAN  |  CLICK TO PIN  |  E / ESC CLOSE',
+    );
     this.renderChrome();
   }
 
@@ -776,7 +862,38 @@ export class EvolutionScene extends Phaser.Scene {
       return;
     }
 
-    this.worldView?.handlePointerUp(pointer.x, pointer.y);
+    const pickedCell = this.worldView?.handlePointerUp(pointer.x, pointer.y) ?? null;
+    if (
+      this.worldRightPanel !== 'actions' ||
+      this.armedWorldAction !== 'conquer' ||
+      !pickedCell
+    ) {
+      return;
+    }
+
+    const availability = this.worldActionCallbacks?.canStartConquest(pickedCell.coord) ?? {
+      allowed: false,
+      reason: 'World actions unavailable.',
+    };
+    if (!availability.allowed) {
+      this.worldActionMessage = availability.reason ?? 'Choose a dead hex.';
+      this.refreshWorldActionCards();
+      this.refreshContextPanel();
+      return;
+    }
+
+    const result = this.worldActionCallbacks?.startConquest(pickedCell.coord) ?? {
+      success: false,
+      reason: 'Unable to start conquest.',
+    };
+    if (!result.success) {
+      this.worldActionMessage = result.reason ?? 'Unable to start conquest.';
+      this.refreshWorldActionCards();
+      this.refreshContextPanel();
+      return;
+    }
+
+    this.handleCloseRequested();
   }
 
   private handleWheel(
@@ -884,5 +1001,8 @@ export class EvolutionScene extends Phaser.Scene {
     this.closeKey = undefined;
     this.evolutionKey = undefined;
     this.closing = false;
+    this.worldActionCallbacks = undefined;
+    this.armedWorldAction = null;
+    this.worldActionMessage = '';
   }
 }

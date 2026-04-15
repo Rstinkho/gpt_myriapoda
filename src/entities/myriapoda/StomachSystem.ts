@@ -1,6 +1,7 @@
 import * as planck from 'planck';
 import { tuning } from '@/game/tuning';
 import type {
+  ResourceCost,
   PickupResourceId,
   PickupTier,
   UiStomachParasiteSnapshot,
@@ -24,6 +25,15 @@ export interface StomachParticle {
   tier: PickupTier;
 }
 
+function createEmptyResourceCounts(): Record<PickupResourceId, number> {
+  return {
+    biomass: 0,
+    tissue: 0,
+    structuralCell: 0,
+    parasite: 0,
+  };
+}
+
 export class StomachSystem {
   private serial = 0;
   private parasiteSerial = 0;
@@ -37,6 +47,10 @@ export class StomachSystem {
   biomass = 0;
   digestedTotal = 0;
   consumedPickupTotal = 0;
+
+  get capacity(): number {
+    return tuning.stomachNutrientCapacity;
+  }
 
   constructor() {
     this.world = new planck.World({
@@ -71,10 +85,6 @@ export class StomachSystem {
       this.parasiteSerial += 1;
       this.parasites.push(createActiveParasite(`parasite-${this.parasiteSerial}`));
       return;
-    }
-
-    while (this.particles.length >= tuning.stomachParticleLimit) {
-      this.removeParticle(this.particles[0], true);
     }
 
     this.serial += 1;
@@ -117,6 +127,69 @@ export class StomachSystem {
     this.biomass += definition.digestValue;
   }
 
+  tryAdd(resourceId: PickupResourceId): boolean {
+    if (!this.canStore(resourceId)) {
+      return false;
+    }
+
+    this.add(resourceId);
+    return true;
+  }
+
+  canStore(resourceId: PickupResourceId): boolean {
+    const definition = getPickupDefinition(resourceId);
+    if (definition.stomachEffect === 'parasite') {
+      return true;
+    }
+
+    return this.particles.length < this.capacity;
+  }
+
+  getResourceCounts(): Record<PickupResourceId, number> {
+    const counts = createEmptyResourceCounts();
+    for (const particle of this.particles) {
+      counts[particle.resourceId] += 1;
+    }
+    counts.parasite = this.parasites.length;
+    return counts;
+  }
+
+  canAfford(cost: ResourceCost): boolean {
+    const counts = this.getResourceCounts();
+    return Object.entries(cost).every(([resourceId, amount]) => {
+      if (amount === undefined) {
+        return true;
+      }
+      return counts[resourceId as PickupResourceId] >= amount;
+    });
+  }
+
+  spend(cost: ResourceCost): boolean {
+    if (!this.canAfford(cost)) {
+      return false;
+    }
+
+    let removedPickups = 0;
+    let removedDigestValue = 0;
+    for (const [resourceId, amount] of Object.entries(cost) as Array<[PickupResourceId, number | undefined]>) {
+      if (!amount || amount <= 0) {
+        continue;
+      }
+      for (let index = 0; index < amount; index += 1) {
+        const digestValue = this.removeOldestStoredResource(resourceId);
+        if (digestValue === null) {
+          return false;
+        }
+        removedPickups += 1;
+        removedDigestValue += digestValue;
+      }
+    }
+
+    this.consumedPickupTotal += removedPickups;
+    this.digestedTotal += removedDigestValue;
+    return true;
+  }
+
   setAnchor(x: number, y: number): void {
     this.anchorX = x;
     this.anchorY = y;
@@ -152,24 +225,6 @@ export class StomachSystem {
     this.keepParticlesInside();
   }
 
-  consumePickupsForGrowth(count: number): void {
-    let remaining = count;
-    let consumedBiomass = 0;
-    let consumedPickups = 0;
-
-    while (remaining > 0 && this.particles.length > 0) {
-      const particle = this.particles[0];
-      remaining -= 1;
-      consumedPickups += 1;
-      consumedBiomass += particle.digestValue;
-      this.removeParticle(particle, false);
-    }
-
-    this.biomass = Math.max(0, this.biomass - consumedBiomass);
-    this.digestedTotal += consumedBiomass;
-    this.consumedPickupTotal += consumedPickups;
-  }
-
   getActiveParasiteCount(): number {
     return this.parasites.length;
   }
@@ -193,6 +248,37 @@ export class StomachSystem {
     }
 
     this.removeParticle(particle, true);
+    return true;
+  }
+
+  drainStoredParticles(count: number): number {
+    let removed = 0;
+    while (removed < count && this.consumeOldestStoredParticle()) {
+      removed += 1;
+    }
+    return removed;
+  }
+
+  private removeOldestStoredResource(resourceId: PickupResourceId): number | null {
+    if (resourceId === 'parasite') {
+      return this.removeOldestParasite() ? 0 : null;
+    }
+
+    const particle = this.particles.find((candidate) => candidate.resourceId === resourceId);
+    if (!particle) {
+      return null;
+    }
+
+    this.removeParticle(particle, true);
+    return particle.digestValue;
+  }
+
+  private removeOldestParasite(): boolean {
+    if (this.parasites.length === 0) {
+      return false;
+    }
+
+    this.parasites.shift();
     return true;
   }
 

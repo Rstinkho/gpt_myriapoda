@@ -172,6 +172,39 @@ function pointAlongEdge(edge: BorderEdge, t: number): BorderPoint {
   };
 }
 
+export function createDashedLineSegments(
+  start: BorderPoint,
+  end: BorderPoint,
+  dashLength: number,
+  gapLength: number,
+  offset = 0,
+): BorderEdge[] {
+  const totalLength = Math.hypot(end.x - start.x, end.y - start.y);
+  if (totalLength <= 0 || dashLength <= 0) {
+    return [];
+  }
+
+  const edge: BorderEdge = { start, end };
+  const cycle = Math.max(0.0001, dashLength + Math.max(0, gapLength));
+  const normalizedOffset = ((offset % cycle) + cycle) % cycle;
+  const segments: BorderEdge[] = [];
+  let cursor = -normalizedOffset;
+
+  while (cursor < totalLength) {
+    const dashStart = Math.max(0, cursor);
+    const dashEnd = Math.min(totalLength, cursor + dashLength);
+    if (dashEnd > dashStart) {
+      segments.push({
+        start: pointAlongEdge(edge, dashStart / totalLength),
+        end: pointAlongEdge(edge, dashEnd / totalLength),
+      });
+    }
+    cursor += cycle;
+  }
+
+  return segments;
+}
+
 export function createProgressBorderSlice(
   edges: BorderEdge[],
   startProgress: number,

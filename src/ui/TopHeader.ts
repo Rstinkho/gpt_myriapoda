@@ -11,6 +11,7 @@ const HEADER_MARGIN_X = 28;
 const TITLE_LINE_1_Y = 22;
 const TITLE_LINE_2_Y = 60;
 const PILL_ROW_Y = 98;
+const CONQUEST_BANNER_Y = 152;
 
 /** TAB pill: single row — label then two dots (same baseline / vertical center). */
 const TAB_ROW_PAD_X = 14;
@@ -32,11 +33,13 @@ export class TopHeader {
   private readonly titleLineTwo: Phaser.GameObjects.Text;
   private readonly tabLabel: Phaser.GameObjects.Text;
   private readonly evolutionLabel: Phaser.GameObjects.Text;
+  private readonly conquestLabel: Phaser.GameObjects.Text;
   private readonly tabHitArea: Phaser.GameObjects.Zone;
   private readonly evolutionHitArea: Phaser.GameObjects.Zone;
   private tabHovered = false;
   private evolutionHovered = false;
   private uiMode: HudSnapshot['uiMode'] = 'minimal';
+  private conquest: HudSnapshot['conquest'] = null;
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -83,6 +86,14 @@ export class TopHeader {
     });
     this.evolutionLabel.setOrigin(0.5).setScrollFactor(0).setDepth(1002);
 
+    this.conquestLabel = scene.add.text(0, 0, '', {
+      fontFamily: 'Trebuchet MS',
+      fontSize: '12px',
+      color: '#dffaff',
+      lineSpacing: 4,
+    });
+    this.conquestLabel.setScrollFactor(0).setDepth(1002).setVisible(false);
+
     this.tabHitArea = scene.add.zone(0, 0, tuning.uiHeaderPillWidth, tuning.uiHeaderPillHeight);
     this.tabHitArea.setOrigin(0, 0).setScrollFactor(0).setDepth(1003);
     this.tabHitArea.setInteractive({ useHandCursor: true });
@@ -117,11 +128,13 @@ export class TopHeader {
     this.tabHitArea.setSize(tuning.uiHeaderPillWidth, pillH);
     this.evolutionHitArea.setPosition(evolutionX, evolutionY);
     this.evolutionHitArea.setSize(evolutionPillWidth, pillH);
+    this.conquestLabel.setPosition(HEADER_MARGIN_X + 14, CONQUEST_BANNER_Y + 10);
     this.redraw();
   }
 
   setSnapshot(snapshot: HudSnapshot): void {
     this.uiMode = snapshot.uiMode;
+    this.conquest = snapshot.conquest;
     this.redraw();
   }
 
@@ -171,6 +184,26 @@ export class TopHeader {
 
     this.drawModeDot(leftDotX, dotY, leftDotLit);
     this.drawModeDot(rightDotX, dotY, rightDotLit);
+
+    if (this.conquest) {
+      const bannerX = HEADER_MARGIN_X;
+      const bannerY = CONQUEST_BANNER_Y;
+      const bannerWidth = 268;
+      const bannerHeight = 54;
+      this.drawPill(bannerX, bannerY, bannerWidth, bannerHeight, 18, 0.15, 0.54);
+      this.graphics.fillStyle(0x4ab8ff, 0.08);
+      this.graphics.fillRoundedRect(bannerX + 6, bannerY + 6, bannerWidth - 12, bannerHeight - 12, 14);
+      this.conquestLabel.setVisible(true);
+      this.conquestLabel.setText(
+        [
+          `CONQUER ${this.conquest.coord.q},${this.conquest.coord.r}  ${this.conquest.playerInside ? 'INSIDE' : 'OUTSIDE'}`,
+          `${Math.floor(this.conquest.occupiedSeconds)}/${Math.floor(this.conquest.occupiedGoalSeconds)}s  |  ${this.conquest.killCount}/${this.conquest.killGoal} LEECHES`,
+        ].join('\n'),
+      );
+    } else {
+      this.conquestLabel.setVisible(false);
+      this.conquestLabel.setText('');
+    }
   }
 
   destroy(): void {
@@ -182,6 +215,7 @@ export class TopHeader {
     this.evolutionHitArea.off('pointerout', this.handleEvolutionOut, this);
     this.evolutionHitArea.off('pointerdown', this.handleEvolutionDown, this);
     this.evolutionHitArea.destroy();
+    this.conquestLabel.destroy();
     this.evolutionLabel.destroy();
     this.tabLabel.destroy();
     this.titleLineOne.destroy();

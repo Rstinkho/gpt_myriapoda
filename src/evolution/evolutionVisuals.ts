@@ -78,6 +78,18 @@ const strategicHexStyles: Record<HexTypeId, EvolutionStrategicHexStyle> = {
     glowColor: 0x90ffd3,
     glowAlpha: 0.22,
   },
+  enriched: {
+    fillColor: 0x371a57,
+    fillAlpha: 0.6,
+    reactiveColor: 0xa05fe9,
+    reactiveAlpha: 0.24,
+    strokeColor: 0xf0ceff,
+    strokeAlpha: 0.9,
+    contourColor: 0xfff4ff,
+    contourAlpha: 0.58,
+    glowColor: 0xd6a3ff,
+    glowAlpha: 0.22,
+  },
   corrupted: {
     fillColor: 0x5d2145,
     fillAlpha: 0.6,

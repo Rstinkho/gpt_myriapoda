@@ -7,10 +7,11 @@ import type {
   DashStateSnapshot,
   EvolutionResourceCounts,
   EvolutionSnapshot,
+  EvolutionWorldActionAvailability,
+  EvolutionWorldActionResult,
   ExpansionEvent,
   HudSnapshot,
   MoveIntent,
-  PickupResourceId,
   UiMode,
 } from '@/game/types';
 import { Enemy } from '@/entities/enemies/Enemy';
@@ -37,10 +38,10 @@ import { CombatSystem } from '@/systems/CombatSystem';
 import { DigestSystem } from '@/systems/DigestSystem';
 import { DashSystem } from '@/systems/DashSystem';
 import { FollowChainSystem } from '@/systems/FollowChainSystem';
-import { GrowthSystem } from '@/systems/GrowthSystem';
 import { InputSystem } from '@/systems/InputSystem';
 import { MovementSystem } from '@/systems/MovementSystem';
 import { PlantSystem } from '@/systems/PlantSystem';
+import { PlayerDamageSystem } from '@/systems/PlayerDamageSystem';
 import { VacuumSystem } from '@/systems/VacuumSystem';
 import { WorldSystem } from '@/systems/WorldSystem';
 import {
@@ -78,21 +79,6 @@ interface TransitionPickupSnapshot {
   scale: Pickup['scale'];
 }
 
-function countEvolutionStomachResources(
-  particles: ReadonlyArray<{ resourceId: PickupResourceId }>,
-): EvolutionResourceCounts {
-  const counts: EvolutionResourceCounts = {
-    biomass: 0,
-    tissue: 0,
-    structuralCell: 0,
-    parasite: 0,
-  };
-  for (const particle of particles) {
-    counts[particle.resourceId] += 1;
-  }
-  return counts;
-}
-
 export class GameScene extends Phaser.Scene {
   private eventBus!: Phaser.Events.EventEmitter;
   private accumulator = 0;
@@ -125,7 +111,6 @@ export class GameScene extends Phaser.Scene {
   private digestSystem!: DigestSystem;
   private combatSystem!: CombatSystem;
   private aiSystem!: AISystem;
-  private growthSystem!: GrowthSystem;
   private worldSystem!: WorldSystem;
   private cameraSystem!: CameraSystem;
   private plantGatherGraphics!: Phaser.GameObjects.Graphics;
@@ -168,8 +153,7 @@ export class GameScene extends Phaser.Scene {
     this.plantSystem = new PlantSystem(this.eventBus);
     this.digestSystem = new DigestSystem(this.eventBus);
     this.combatSystem = new CombatSystem(this.eventBus);
-    this.aiSystem = new AISystem();
-    this.growthSystem = new GrowthSystem();
+    this.aiSystem = new AISystem(new PlayerDamageSystem(this.eventBus));
     this.worldSystem = new WorldSystem(
       this,
       this.eventBus,
@@ -281,7 +265,6 @@ export class GameScene extends Phaser.Scene {
     this.digestSystem.update(this.myriapoda, tuning.fixedStepSeconds);
     this.combatSystem.update(this.myriapoda, this.enemies, this.collisions, this.physicsWorld.world);
 
-    this.growthSystem.update(this.myriapoda);
     this.myriapoda.syncBodyAttachments(0, dashState);
     const headPixelPosition = vec2ToPixels(this.myriapoda.head.body.getPosition());
     this.worldSystem.update(headPixelPosition);
@@ -317,6 +300,7 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
+    this.myriapoda.stepDamageFeedback(this.renderDeltaSeconds);
     this.enemyBurstFxController.update(this.renderDeltaSeconds);
     this.myriapodaRenderer.update(this.myriapoda, this.lastDashState);
     this.enemyBurstFxRenderer.render(this.enemyBurstFxController.getBursts());
@@ -397,6 +381,9 @@ export class GameScene extends Phaser.Scene {
     }
 
     for (const limb of this.myriapoda.limbs.limbs) {
+      if (!limb.body) {
+        continue;
+      }
       const strikePose = this.myriapoda.limbs.getStrikePose(limb, this.myriapoda.body);
       const tip = strikePose.tipPixels;
       const direction = strikePose.direction;
@@ -463,12 +450,12 @@ export class GameScene extends Phaser.Scene {
     );
     const attackCooldown = this.combatSystem.getAttackCooldown();
     const dashState = this.dashSystem.getStateSnapshot();
+    const hasAttackCapableLimb = this.myriapoda.limbs.hasAttackCapableLimb();
 
     return {
       uiMode: this.uiMode,
       storedPickups: this.myriapoda.stomach.particles.length,
-      spentPickups: this.myriapoda.stomach.consumedPickupTotal,
-      growthPickupGoal: tuning.growthPickupsPerSegment,
+      stomachCapacity: this.myriapoda.stomach.capacity,
       fillLevel: this.worldSystem.world.fillLevel,
       fillThreshold: this.worldSystem.world.fillThreshold,
       stage: this.worldSystem.world.stage,
@@ -476,17 +463,20 @@ export class GameScene extends Phaser.Scene {
       enemies: this.enemies.size,
       pickups: this.pickups.size,
       attackCooldown,
-      limbCooldownProgress: getLimbCooldownProgress(
-        attackCooldown,
-        tuning.limbAttackIntervalSeconds,
-      ),
-      limbReady: attackCooldown === 0,
+      limbCooldownProgress: hasAttackCapableLimb
+        ? getLimbCooldownProgress(
+            attackCooldown,
+            tuning.limbAttackIntervalSeconds,
+          )
+        : 0,
+      limbReady: attackCooldown === 0 && hasAttackCapableLimb,
       dashCooldown: dashState.cooldownSeconds,
       dashCooldownProgress: dashState.cooldownProgress,
       dashReady: dashState.isReady,
       activeLimbId: this.combatSystem.getActiveLimbId(),
       activeParasiteCount: this.myriapoda.stomach.getActiveParasiteCount(),
       parasiteAlertProgress: this.myriapoda.stomach.getParasiteAlertProgress(),
+      conquest: this.worldSystem.getConquestProgress(),
       pickupCounts: getPickupCountsByTier(stomachParticles),
       stomachParticles,
       stomachParasites: this.myriapoda.stomach.getUiParasiteSnapshots(),
@@ -495,14 +485,16 @@ export class GameScene extends Phaser.Scene {
   }
 
   private buildEvolutionSnapshot(): EvolutionSnapshot {
-    const particles = this.myriapoda.stomach.particles;
+    const resourceCounts = this.myriapoda.stomach.getResourceCounts() as EvolutionResourceCounts;
     return {
       myriapoda: {
         segmentCount: this.myriapoda.body.segments.length,
-        stomachResources: particles.map((particle) => particle.resourceId),
+        disabledLimbIndices: this.myriapoda.limbs.getDestroyedLimbIndices(),
+        stomachResources: this.myriapoda.stomach.particles.map((particle) => particle.resourceId),
         parasiteCount: this.myriapoda.stomach.getActiveParasiteCount(),
+        stomachCapacity: this.myriapoda.stomach.capacity,
       },
-      resourceCounts: countEvolutionStomachResources(particles),
+      resourceCounts,
       world: {
         cells: this.worldSystem.world.cells.map((cell) => ({
           coord: { ...cell.coord },
@@ -510,6 +502,9 @@ export class GameScene extends Phaser.Scene {
           centerY: cell.centerY,
           unlocked: cell.unlocked,
           type: cell.type,
+          ownerId: cell.ownerId,
+          buildable: cell.buildable,
+          conquestState: cell.conquestState,
         })),
         bounds: { ...this.worldSystem.world.bounds },
         stage: this.worldSystem.world.stage,
@@ -518,6 +513,7 @@ export class GameScene extends Phaser.Scene {
         hexSize: tuning.worldHexSize,
         focusX: 0,
         focusY: 0,
+        conquest: this.worldSystem.getConquestProgress(),
       },
     };
   }
@@ -540,7 +536,61 @@ export class GameScene extends Phaser.Scene {
 
     openEvolutionOverlay(this.scene as never, {
       snapshot: this.buildEvolutionSnapshot(),
+      worldActions: {
+        canStartConquest: (coord: { q: number; r: number } | null) => this.canStartConquest(coord),
+        startConquest: (coord: { q: number; r: number }) => this.startConquest(coord),
+      },
     });
+  }
+
+  private canStartConquest(coord: { q: number; r: number } | null): EvolutionWorldActionAvailability {
+    const worldAvailability = this.worldSystem.canStartConquest(coord);
+    if (!worldAvailability.allowed) {
+      return worldAvailability;
+    }
+
+    if (!this.myriapoda.stomach.canAfford({ biomass: tuning.conquerBiomassCost })) {
+      return {
+        allowed: false,
+        reason: `Need ${tuning.conquerBiomassCost} biomass.`,
+      };
+    }
+
+    return {
+      allowed: true,
+    };
+  }
+
+  private startConquest(coord: { q: number; r: number }): EvolutionWorldActionResult {
+    const availability = this.canStartConquest(coord);
+    if (!availability.allowed) {
+      return {
+        success: false,
+        reason: availability.reason,
+      };
+    }
+
+    const spent = this.myriapoda.stomach.spend({
+      biomass: tuning.conquerBiomassCost,
+    });
+    if (!spent) {
+      return {
+        success: false,
+        reason: `Need ${tuning.conquerBiomassCost} biomass.`,
+      };
+    }
+
+    if (!this.worldSystem.startConquest(coord)) {
+      return {
+        success: false,
+        reason: 'Unable to start conquest here.',
+      };
+    }
+
+    this.eventBus.emit(GameEvents.hudChanged);
+    return {
+      success: true,
+    };
   }
 
   private handleCameraImpulse(payload: CameraImpulsePayload): void {
@@ -623,6 +673,9 @@ export class GameScene extends Phaser.Scene {
     this.stopBodyMotion(this.myriapoda.head.body);
 
     for (const limb of this.myriapoda.limbs.limbs) {
+      if (!limb.body) {
+        continue;
+      }
       this.stopBodyMotion(limb.body.root);
       for (const body of limb.body.bodies) {
         this.stopBodyMotion(body);

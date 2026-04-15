@@ -1,10 +1,11 @@
 import * as Phaser from 'phaser';
 import { tuning } from '@/game/tuning';
 import { GameEvents } from '@/game/events';
-import type { Enemy } from '@/entities/enemies/Enemy';
+import { isShellbackEnemy, type Enemy } from '@/entities/enemies/Enemy';
 import type { EnemyFactory } from '@/entities/enemies/EnemyFactory';
 import { resolveEnemyDrops } from '@/entities/enemies/EnemyDropRegistry';
 import { resolveEnemyType } from '@/entities/enemies/EnemyRegistry';
+import { pickShellbackGuardCell } from '@/entities/enemies/shellback/ShellbackAI';
 import type { Plant } from '@/entities/plants/Plant';
 import type { PlantFactory } from '@/entities/plants/PlantFactory';
 import { shouldOccupyPurifiedHex } from '@/entities/plants/plantLifecycle';
@@ -16,6 +17,7 @@ import { HexWorld } from '@/entities/world/HexWorld';
 import { SpawnSystem, enforceEnemyCap } from '@/entities/world/SpawnSystem';
 import { createCoordKey, type ChooseIndex } from '@/entities/world/WorldExpansion';
 import { WorldRenderer } from '@/rendering/WorldRenderer';
+import { ConquestSystem } from '@/systems/conquest/ConquestSystem';
 import { randomBetween } from '@/utils/random';
 
 interface PlantSlot {
@@ -33,9 +35,12 @@ export class WorldSystem {
   readonly spawner = new SpawnSystem(tuning.enemySpawnRadiusPadding);
   readonly renderer: WorldRenderer;
   private pendingFillGain = 0;
+  private bufferedFillGain = 0;
+  private shellbackRespawnTimer = 0;
   private readonly plantSlots = new Map<string, PlantSlot>();
   private readonly randomFloat: () => number;
   private spawningSuppressed = false;
+  private readonly conquestSystem: ConquestSystem;
 
   constructor(
     scene: Phaser.Scene,
@@ -51,27 +56,50 @@ export class WorldSystem {
     this.randomFloat = options.randomFloat ?? Math.random;
     this.world = new HexWorld(options.chooseIndex);
     this.renderer = new WorldRenderer(scene);
+    this.conquestSystem = new ConquestSystem(
+      this.enemyFactory,
+      this.enemies,
+      this.randomFloat,
+    );
     this.eventBus.on(GameEvents.enemyKilled, this.handleEnemyKilled, this);
     this.eventBus.on(GameEvents.pickupAbsorbed, this.handlePickupAbsorbed, this);
   }
 
   update(headPosition: { x: number; y: number }): void {
+    if (this.shellbackRespawnTimer > 0) {
+      this.shellbackRespawnTimer = Math.max(
+        0,
+        this.shellbackRespawnTimer - tuning.fixedStepSeconds,
+      );
+      if (this.shellbackRespawnTimer < 0.000001) {
+        this.shellbackRespawnTimer = 0;
+      }
+    }
     const fillGain = this.pendingFillGain;
     this.pendingFillGain = 0;
 
-    if (fillGain > 0) {
-      this.renderer.addFillPulse(Math.min(0.36, fillGain * 0.05));
-      const expansion = this.world.addFill(fillGain);
-      if (expansion) {
-        const overflowProgress = this.world.fillLevel / Math.max(1, this.world.fillThreshold);
-        this.renderer.startExpansion(expansion, overflowProgress);
-        this.eventBus.emit(GameEvents.worldExpanded, expansion);
+    if (this.conquestSystem.isActive()) {
+      this.bufferedFillGain += fillGain;
+    } else {
+      const totalFillGain = this.bufferedFillGain + fillGain;
+      this.bufferedFillGain = 0;
+      if (totalFillGain > 0) {
+        this.renderer.addFillPulse(Math.min(0.36, totalFillGain * 0.05));
+        const expansion = this.world.addFill(totalFillGain);
+        if (expansion) {
+          const overflowProgress = this.world.fillLevel / Math.max(1, this.world.fillThreshold);
+          this.renderer.startExpansion(expansion, overflowProgress);
+          this.eventBus.emit(GameEvents.worldExpanded, expansion);
+        }
       }
     }
+
+    this.conquestSystem.update(this.world, headPosition);
 
     const visibleCells = this.renderer.getSpawnableCells(this.world.cells);
     if (!this.spawningSuppressed) {
       this.ensurePlants(visibleCells);
+      this.ensureShellback(headPosition, visibleCells);
       this.ensureEnemies(headPosition, visibleCells);
     }
     this.renderer.update({
@@ -83,27 +111,49 @@ export class WorldSystem {
       hexSize: tuning.worldHexSize,
       focusX: headPosition.x,
       focusY: headPosition.y,
+      conquest: this.conquestSystem.getSnapshot(),
     });
   }
 
-  destroy(): void {
-    this.eventBus.off(GameEvents.enemyKilled, this.handleEnemyKilled, this);
-    this.eventBus.off(GameEvents.pickupAbsorbed, this.handlePickupAbsorbed, this);
-    this.renderer.destroy();
-  }
-
-  setSpawningSuppressed(suppressed: boolean): void {
-    this.spawningSuppressed = suppressed;
-  }
-
-  isExpansionActive(): boolean {
-    return this.renderer.isExpansionActive();
-  }
-
-  releasePlantOccupants(): void {
-    for (const slot of this.plantSlots.values()) {
-      slot.plantId = null;
+  canStartConquest(coord: { q: number; r: number } | null): { allowed: boolean; reason?: string } {
+    if (this.conquestSystem.isActive()) {
+      return {
+        allowed: false,
+        reason: 'Conquest already in progress.',
+      };
     }
+
+    if (this.world.hasOwnedCell()) {
+      return {
+        allowed: false,
+        reason: 'This world already has a conquered hex.',
+      };
+    }
+
+    if (!coord) {
+      return {
+        allowed: true,
+      };
+    }
+
+    if (!this.world.canConquerCell(coord)) {
+      return {
+        allowed: false,
+        reason: 'Choose an unowned dead hex.',
+      };
+    }
+
+    return {
+      allowed: true,
+    };
+  }
+
+  startConquest(coord: { q: number; r: number }): boolean {
+    return this.conquestSystem.start(this.world, coord);
+  }
+
+  getConquestProgress() {
+    return this.conquestSystem.getSnapshot();
   }
 
   private ensurePlants(visibleCells: typeof this.world.cells): void {
@@ -140,26 +190,73 @@ export class WorldSystem {
   }
 
   private ensureEnemies(headPosition: { x: number; y: number }, cells: typeof this.world.cells): void {
+    const activeShellbackCount = [...this.enemies.values()].filter(isShellbackEnemy).length;
+    const activeAmbientEnemyCount = this.enemies.size - activeShellbackCount;
     const desired = Math.min(
       tuning.targetEnemyCount + Math.max(0, this.world.stage - 1),
-      tuning.enemyCap,
+      tuning.enemyCap - activeShellbackCount,
     );
 
     let remaining = Math.min(
-      desired - this.enemies.size,
+      desired - activeAmbientEnemyCount,
       enforceEnemyCap(this.enemies.size, tuning.enemyCap),
     );
 
     while (remaining > 0) {
-      const spawn = this.spawner.pickSpawn(cells, headPosition);
       const enemyType = resolveEnemyType(this.world.stage, this.randomFloat());
-      const enemy = this.enemyFactory.create(spawn.x, spawn.y, enemyType);
+      const spawn = this.spawner.pickSpawn(cells, headPosition);
+      const enemy = this.enemyFactory.create(
+        spawn,
+        enemyType,
+      );
       this.enemies.set(enemy.id, enemy);
       remaining -= 1;
     }
   }
 
-  private handleEnemyKilled(payload: { enemyType: Enemy['type']; x: number; y: number }): void {
+  private ensureShellback(
+    headPosition: { x: number; y: number },
+    cells: typeof this.world.cells,
+  ): void {
+    if (this.world.stage < 3) {
+      return;
+    }
+
+    const activeShellbackCount = [...this.enemies.values()].filter(isShellbackEnemy).length;
+    if (
+      activeShellbackCount >= tuning.shellbackMaxActiveCount ||
+      this.shellbackRespawnTimer > 0 ||
+      enforceEnemyCap(this.enemies.size, tuning.enemyCap) <= 0
+    ) {
+      return;
+    }
+
+    const claimedGuardCellKeys = new Set(
+      [...this.enemies.values()]
+        .filter(isShellbackEnemy)
+        .map((enemy) => enemy.guardCellKey),
+    );
+    const guardCell = pickShellbackGuardCell(cells, claimedGuardCellKeys, this.randomFloat);
+    if (!guardCell) {
+      return;
+    }
+
+    const spawn = this.spawner.pickSpawnInCell(guardCell, headPosition);
+    const enemy = this.enemyFactory.create(
+      {
+        ...spawn,
+        guardCell,
+      },
+      'shellback',
+    );
+    this.enemies.set(enemy.id, enemy);
+  }
+
+  private handleEnemyKilled(payload: { enemyId?: string; enemyType: Enemy['type']; x: number; y: number }): void {
+    this.conquestSystem.handleEnemyKilled(payload);
+    if (payload.enemyType === 'shellback') {
+      this.shellbackRespawnTimer = tuning.shellbackRespawnDelaySeconds;
+    }
     const drops = appendParasiteBonusDrop(
       resolveEnemyDrops(payload.enemyType, this.randomFloat()),
       this.randomFloat(),
@@ -188,5 +285,25 @@ export class WorldSystem {
 
   private handlePickupAbsorbed(payload: { digestValue: number }): void {
     this.pendingFillGain += payload.digestValue;
+  }
+
+  destroy(): void {
+    this.eventBus.off(GameEvents.enemyKilled, this.handleEnemyKilled, this);
+    this.eventBus.off(GameEvents.pickupAbsorbed, this.handlePickupAbsorbed, this);
+    this.renderer.destroy();
+  }
+
+  setSpawningSuppressed(suppressed: boolean): void {
+    this.spawningSuppressed = suppressed;
+  }
+
+  isExpansionActive(): boolean {
+    return this.renderer.isExpansionActive();
+  }
+
+  releasePlantOccupants(): void {
+    for (const slot of this.plantSlots.values()) {
+      slot.plantId = null;
+    }
   }
 }

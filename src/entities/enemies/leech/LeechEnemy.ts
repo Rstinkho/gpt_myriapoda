@@ -3,6 +3,7 @@ import * as planck from 'planck';
 import { tuning } from '@/game/tuning';
 import type { LeechEnemyState } from '@/entities/enemies/Enemy';
 import { LeechView } from '@/entities/enemies/leech/LeechView';
+import type { EnemySpawnContext } from '@/game/types';
 import { EnemyBody } from '@/physics/bodies/EnemyBody';
 
 export class LeechEnemy implements LeechEnemyState {
@@ -10,6 +11,7 @@ export class LeechEnemy implements LeechEnemyState {
   readonly body: planck.Body;
   readonly view: LeechView;
   readonly radiusPx = tuning.leechRadius;
+  readonly speedMultiplier: number;
   health = tuning.leechHealth;
   state: LeechEnemyState['state'] = 'seeking';
   attachedLatchSlotIndex: number | null = null;
@@ -21,19 +23,19 @@ export class LeechEnemy implements LeechEnemyState {
     scene: Phaser.Scene,
     world: planck.World,
     readonly id: string,
-    x: number,
-    y: number,
+    spawn: EnemySpawnContext,
   ) {
     const enemyBody = new EnemyBody(
       world,
       id,
-      x,
-      y,
+      spawn.x,
+      spawn.y,
       tuning.leechRadius,
       tuning.leechLinearDamping,
       tuning.leechAngularDamping,
     );
     this.body = enemyBody.body;
+    this.speedMultiplier = spawn.enemySpeedMultiplier ?? 1;
     this.view = new LeechView(scene, id);
   }
 

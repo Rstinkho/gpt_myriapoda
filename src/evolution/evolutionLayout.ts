@@ -1,4 +1,14 @@
 import type { EvolutionSection, PickupResourceId } from '@/game/types';
+import {
+  evolutionWorldActionDefs,
+  evolutionWorldBuildingDefs,
+  formatResourceCost,
+  getEvolutionUpgradeNodes,
+  type EvolutionUpgradeFamily,
+  type EvolutionUpgradeNodeDefinition,
+  type EvolutionWorldActionId,
+  type EvolutionWorldActionIcon,
+} from '@/evolution/evolutionData';
 
 export interface RectLike {
   x: number;
@@ -17,19 +27,10 @@ export interface EvolutionRectGroup {
 export interface EvolutionBuildingSlotLayout {
   id: string;
   name: string;
+  costLabel: string;
+  requirement: string;
   rect: RectLike;
 }
-
-export const evolutionWorldBuildingDefs = [
-  { id: 'spire', name: 'Crystal Spire' },
-  { id: 'dome', name: 'Bio Dome' },
-  { id: 'foundry', name: 'Foundry' },
-  { id: 'relay', name: 'Relay' },
-  { id: 'bastion', name: 'Bastion' },
-  { id: 'silo', name: 'Silo' },
-  { id: 'spore', name: 'Spore Nest' },
-  { id: 'prism', name: 'Prism Gate' },
-] as const;
 
 export interface EvolutionEnhancementNodeLayout {
   id: string;
@@ -47,8 +48,11 @@ export interface EvolutionEnhancementLinkLayout {
 }
 
 export interface EvolutionActionCardLayout {
+  id: EvolutionWorldActionId;
   title: string;
-  icon: 'probe' | 'purify' | 'seed' | 'anchor';
+  icon: EvolutionWorldActionIcon;
+  costLabel?: string;
+  locked: boolean;
   rect: RectLike;
 }
 
@@ -58,35 +62,16 @@ export const evolutionToolbarResourceIds = [
   'structuralCell',
 ] as const satisfies readonly PickupResourceId[];
 
-const branchNodeDefs = [
-  { id: 'core', label: 'SOMATIC CORE', sublabel: 'foundation', column: 0, row: 0, locked: false },
-  { id: 'carapace', label: 'Carapace weave', sublabel: 'LOCKED', column: 1, row: 0, locked: true },
-  { id: 'tendon', label: 'Tendon lattice', sublabel: 'LOCKED', column: 1, row: 1, locked: true },
-  { id: 'optic', label: 'Optic fan', sublabel: 'LOCKED', column: 2, row: 0, locked: true },
-  { id: 'vascular', label: 'Vascular rewrite', sublabel: 'LOCKED', column: 2, row: 1, locked: true },
-  { id: 'digestive', label: 'Digestive expansion', sublabel: 'LOCKED', column: 2, row: 2, locked: true },
-  { id: 'aegis', label: 'Aegis shell', sublabel: 'LOCKED', column: 3, row: 0, locked: true },
-  { id: 'sprint', label: 'Sprint tendons', sublabel: 'LOCKED', column: 3, row: 1, locked: true },
-  { id: 'hive', label: 'Hive stomach', sublabel: 'LOCKED', column: 3, row: 2, locked: true },
-] as const;
-
 const branchLinks: EvolutionEnhancementLinkLayout[] = [
-  { fromId: 'core', toId: 'carapace' },
-  { fromId: 'core', toId: 'tendon' },
-  { fromId: 'carapace', toId: 'optic' },
-  { fromId: 'carapace', toId: 'vascular' },
-  { fromId: 'tendon', toId: 'vascular' },
-  { fromId: 'tendon', toId: 'digestive' },
-  { fromId: 'optic', toId: 'aegis' },
-  { fromId: 'vascular', toId: 'sprint' },
-  { fromId: 'digestive', toId: 'hive' },
-] as const;
-
-const worldActionDefs = [
-  { title: 'Probe sector', icon: 'probe' },
-  { title: 'Purify channel', icon: 'purify' },
-  { title: 'Seed colony', icon: 'seed' },
-  { title: 'Anchor hive route', icon: 'anchor' },
+  { fromId: 'core', toId: 'tier-1a' },
+  { fromId: 'core', toId: 'tier-1b' },
+  { fromId: 'tier-1a', toId: 'tier-2a' },
+  { fromId: 'tier-1a', toId: 'tier-2b' },
+  { fromId: 'tier-1b', toId: 'tier-2b' },
+  { fromId: 'tier-1b', toId: 'tier-2c' },
+  { fromId: 'tier-2a', toId: 'tier-3a' },
+  { fromId: 'tier-2b', toId: 'tier-3b' },
+  { fromId: 'tier-2c', toId: 'tier-3c' },
 ] as const;
 
 function insetRect(bounds: RectLike, inset: number): RectLike {
@@ -231,6 +216,8 @@ export function getEvolutionWorldBuildingSlotLayout(
     return {
       id: def.id,
       name: def.name,
+      costLabel: formatResourceCost(def.cost),
+      requirement: def.requirement,
       rect: {
         x: startX + col * (tile + gap),
         y: startY + row * (tile + gap),
@@ -243,6 +230,7 @@ export function getEvolutionWorldBuildingSlotLayout(
 
 export function getEvolutionEnhancementTreeLayout(
   bounds: RectLike,
+  family: EvolutionUpgradeFamily = 'head',
 ): {
   nodes: EvolutionEnhancementNodeLayout[];
   links: readonly EvolutionEnhancementLinkLayout[];
@@ -256,13 +244,15 @@ export function getEvolutionEnhancementTreeLayout(
   const nodeHeight = Math.max(42, Math.min(64, inner.height * 0.16));
   const rowHeights = [0.22, 0.5, 0.78];
 
-  const nodes = branchNodeDefs.map((node) => {
+  const nodeDefs: EvolutionUpgradeNodeDefinition[] = getEvolutionUpgradeNodes(family);
+  const nodes = nodeDefs.map((node) => {
     const columnCenterX = inner.x + columnWidth * (node.column + 0.5);
     const yFactor =
       node.column === 0 ? 0.5 : rowHeights[Math.min(maxRows - 1, Math.max(0, node.row))];
     const centerY = inner.y + inner.height * yFactor;
     return {
       ...node,
+      sublabel: formatResourceCost(node.cost),
       rect: {
         x: columnCenterX - nodeWidth * 0.5,
         y: centerY - nodeHeight * 0.5,
@@ -280,7 +270,7 @@ export function getEvolutionWorldActionCardLayout(
   gap = 8,
 ): EvolutionActionCardLayout[] {
   const inner = insetRect(bounds, Math.max(4, Math.min(12, bounds.width * 0.03)));
-  const n = worldActionDefs.length;
+  const n = evolutionWorldActionDefs.length;
   const totalGap = gap * Math.max(0, n - 1);
   const slotW = (inner.width - totalGap) / n;
   /** Square tiles: fit row width, but do not stretch to full action-list height. */
@@ -290,8 +280,12 @@ export function getEvolutionWorldActionCardLayout(
   /** Top-aligned under stats text; remaining height stays empty below. */
   const startY = inner.y;
 
-  return worldActionDefs.map((card, index) => ({
-    ...card,
+  return evolutionWorldActionDefs.map((card, index) => ({
+    id: card.id,
+    title: card.title,
+    icon: card.icon,
+    costLabel: card.cost ? formatResourceCost(card.cost) : undefined,
+    locked: card.locked,
     rect: {
       x: startX + index * (quad + gap),
       y: startY,
