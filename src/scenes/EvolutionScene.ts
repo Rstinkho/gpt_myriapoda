@@ -1,4 +1,5 @@
 import * as Phaser from 'phaser';
+import { EvolutionBackdropRenderer } from '@/background/EvolutionBackdropRenderer';
 import { EvolutionEnhancementBranch } from '@/evolution/EvolutionEnhancementBranch';
 import {
   getEvolutionUpgradeFamily,
@@ -56,6 +57,7 @@ export class EvolutionScene extends Phaser.Scene {
   private snapshot?: EvolutionSnapshot;
   private preview?: EvolutionMyriapodaPreview;
   private worldView?: EvolutionWorldView;
+  private backdropRenderer?: EvolutionBackdropRenderer;
   private enhancementBranch?: EvolutionEnhancementBranch;
   private worldActionCards?: EvolutionWorldActionCards;
   private worldBuildingsPanel?: EvolutionWorldBuildingsPanel;
@@ -131,6 +133,7 @@ export class EvolutionScene extends Phaser.Scene {
 
     this.backdropGraphics = this.add.graphics().setDepth(0.2);
     this.chromeGraphics = this.add.graphics().setDepth(20);
+    this.backdropRenderer = new EvolutionBackdropRenderer(this);
     this.preview = new EvolutionMyriapodaPreview(this, this.snapshot.myriapoda);
     this.worldView = new EvolutionWorldView(this, this.snapshot.world);
     this.enhancementBranch = new EvolutionEnhancementBranch(this);
@@ -281,6 +284,7 @@ export class EvolutionScene extends Phaser.Scene {
     } else {
       this.worldView?.update(deltaSeconds);
     }
+    this.backdropRenderer?.update(deltaSeconds);
     this.refreshContextPanel();
   }
 
@@ -596,8 +600,6 @@ export class EvolutionScene extends Phaser.Scene {
     }
 
     this.backdropGraphics.clear();
-    this.backdropGraphics.fillStyle(0x040a10, 1);
-    this.backdropGraphics.fillRect(0, 0, this.scale.width, this.scale.height);
 
     this.chromeGraphics.clear();
 
@@ -943,6 +945,7 @@ export class EvolutionScene extends Phaser.Scene {
 
     this.preview?.destroy();
     this.worldView?.destroy();
+    this.backdropRenderer?.destroy();
     this.enhancementBranch?.destroy();
     this.worldActionCards?.destroy();
     this.worldBuildingsPanel?.destroy();
@@ -974,6 +977,7 @@ export class EvolutionScene extends Phaser.Scene {
     this.snapshot = undefined;
     this.preview = undefined;
     this.worldView = undefined;
+    this.backdropRenderer = undefined;
     this.enhancementBranch = undefined;
     this.worldActionCards = undefined;
     this.worldBuildingsPanel = undefined;

@@ -1,4 +1,5 @@
 import * as Phaser from 'phaser';
+import { registerBackgroundTextures } from '@/background/backgroundTextures';
 import { registerEvolutionBuildingTextures } from '@/evolution/evolutionBuildingTextures';
 import { textureKeys } from '@/game/assets';
 import { pickupDefinitions } from '@/entities/pickups';
@@ -10,6 +11,7 @@ export class PreloadScene extends Phaser.Scene {
 
   create(): void {
     this.createCircleTexture(textureKeys.head, 48, 0x8bd9b0, 0x2e4d42);
+    registerBackgroundTextures(this);
     for (const definition of pickupDefinitions) {
       this.createPickupTexture(definition.textureKey, 48, definition.buildTexture);
     }

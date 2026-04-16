@@ -37,12 +37,11 @@ interface PendingExpansion {
   startProgress: number;
 }
 
-const worldRevealGlowDepth = 0.78;
-const worldBorderShadowDepth = 0.92;
-const worldBaseDepth = 1;
+const worldRevealGlowOffset = -0.22;
+const worldBorderShadowOffset = -0.08;
 /** Hex outlines sit above tile fills but below player, plants, pickups, and enemies (see GameScene ~4.8+, Pickup 6, plants 7, jellyfish 8, head 12). */
-const worldCellStrokeDepth = 4.5;
-const worldConquestHudDepth = 9.2;
+const worldCellStrokeOffset = 3.5;
+const worldConquestHudOffset = 8.2;
 const worldRevealGlowRadiusPadding = 18;
 const worldRevealGlowAlpha = 0.14;
 const worldRevealGlowColor = 0x88edff;
@@ -60,24 +59,25 @@ export class WorldRenderer {
   private elapsed = 0;
 
   constructor(scene: Phaser.Scene) {
+    const base = tuning.worldHexBaseDepth;
     this.revealGlowGraphics = scene.add.graphics();
-    this.revealGlowGraphics.setDepth(worldRevealGlowDepth);
+    this.revealGlowGraphics.setDepth(base + worldRevealGlowOffset);
     this.revealGlowGraphics.setScrollFactor(1);
 
     this.cellGraphics = scene.add.graphics();
-    this.cellGraphics.setDepth(worldBaseDepth);
+    this.cellGraphics.setDepth(base);
 
     this.cellStrokeGraphics = scene.add.graphics();
-    this.cellStrokeGraphics.setDepth(worldCellStrokeDepth);
+    this.cellStrokeGraphics.setDepth(base + worldCellStrokeOffset);
     this.cellStrokeGraphics.setScrollFactor(1);
 
     this.borderShadowGraphics = scene.add.graphics();
-    this.borderShadowGraphics.setDepth(worldBorderShadowDepth);
+    this.borderShadowGraphics.setDepth(base + worldBorderShadowOffset);
     this.borderShadowGraphics.setScrollFactor(1);
     this.borderShadowGraphics.enableFilters();
 
     this.conquestHudGraphics = scene.add.graphics();
-    this.conquestHudGraphics.setDepth(worldConquestHudDepth);
+    this.conquestHudGraphics.setDepth(base + worldConquestHudOffset);
     this.conquestHudGraphics.setScrollFactor(1);
 
     Phaser.Actions.AddEffectBloom(this.borderShadowGraphics, {

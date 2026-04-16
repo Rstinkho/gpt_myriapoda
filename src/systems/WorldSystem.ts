@@ -1,6 +1,7 @@
 import * as Phaser from 'phaser';
 import { tuning } from '@/game/tuning';
 import { GameEvents } from '@/game/events';
+import type { WorldRenderSnapshot } from '@/game/types';
 import { isShellbackEnemy, type Enemy } from '@/entities/enemies/Enemy';
 import type { EnemyFactory } from '@/entities/enemies/EnemyFactory';
 import { resolveEnemyDrops } from '@/entities/enemies/EnemyDropRegistry';
@@ -41,6 +42,8 @@ export class WorldSystem {
   private readonly randomFloat: () => number;
   private spawningSuppressed = false;
   private readonly conquestSystem: ConquestSystem;
+  private lastFocus = { x: 0, y: 0 };
+  private lastSnapshot: WorldRenderSnapshot;
 
   constructor(
     scene: Phaser.Scene,
@@ -61,11 +64,13 @@ export class WorldSystem {
       this.enemies,
       this.randomFloat,
     );
+    this.lastSnapshot = this.createSnapshot();
     this.eventBus.on(GameEvents.enemyKilled, this.handleEnemyKilled, this);
     this.eventBus.on(GameEvents.pickupAbsorbed, this.handlePickupAbsorbed, this);
   }
 
   update(headPosition: { x: number; y: number }): void {
+    this.lastFocus = { ...headPosition };
     if (this.shellbackRespawnTimer > 0) {
       this.shellbackRespawnTimer = Math.max(
         0,
@@ -102,17 +107,8 @@ export class WorldSystem {
       this.ensureShellback(headPosition, visibleCells);
       this.ensureEnemies(headPosition, visibleCells);
     }
-    this.renderer.update({
-      cells: this.world.cells,
-      bounds: this.world.bounds,
-      stage: this.world.stage,
-      fillLevel: this.world.fillLevel,
-      fillThreshold: this.world.fillThreshold,
-      hexSize: tuning.worldHexSize,
-      focusX: headPosition.x,
-      focusY: headPosition.y,
-      conquest: this.conquestSystem.getSnapshot(),
-    });
+    this.lastSnapshot = this.createSnapshot();
+    this.renderer.update(this.lastSnapshot);
   }
 
   canStartConquest(coord: { q: number; r: number } | null): { allowed: boolean; reason?: string } {
@@ -154,6 +150,10 @@ export class WorldSystem {
 
   getConquestProgress() {
     return this.conquestSystem.getSnapshot();
+  }
+
+  getRenderSnapshot(): WorldRenderSnapshot {
+    return this.lastSnapshot;
   }
 
   private ensurePlants(visibleCells: typeof this.world.cells): void {
@@ -305,5 +305,19 @@ export class WorldSystem {
     for (const slot of this.plantSlots.values()) {
       slot.plantId = null;
     }
+  }
+
+  private createSnapshot(): WorldRenderSnapshot {
+    return {
+      cells: this.world.cells,
+      bounds: this.world.bounds,
+      stage: this.world.stage,
+      fillLevel: this.world.fillLevel,
+      fillThreshold: this.world.fillThreshold,
+      hexSize: tuning.worldHexSize,
+      focusX: this.lastFocus.x,
+      focusY: this.lastFocus.y,
+      conquest: this.conquestSystem.getSnapshot(),
+    };
   }
 }

@@ -1,5 +1,6 @@
 import * as Phaser from 'phaser';
 import * as planck from 'planck';
+import { AbyssBackgroundRenderer } from '@/background/AbyssBackgroundRenderer';
 import { tuning } from '@/game/tuning';
 import { GameEvents } from '@/game/events';
 import type {
@@ -93,6 +94,7 @@ export class GameScene extends Phaser.Scene {
   private physicsWorld!: PhysicsWorld;
   private myriapoda!: Myriapoda;
   private myriapodaRenderer!: MyriapodaRenderer;
+  private abyssBackground!: AbyssBackgroundRenderer;
   private enemyBurstFxController!: EnemyBurstFxController;
   private enemyBurstFxRenderer!: EnemyBurstFxRenderer;
   private pickups = new Map<string, Pickup>();
@@ -138,6 +140,7 @@ export class GameScene extends Phaser.Scene {
     this.collisions = new CollisionRegistry();
     this.physicsWorld = new PhysicsWorld(this.collisions);
     this.myriapoda = new Myriapoda(this, this.physicsWorld.world, 0, 0);
+    this.abyssBackground = new AbyssBackgroundRenderer(this);
     this.myriapodaRenderer = new MyriapodaRenderer(this);
     this.enemyBurstFxController = new EnemyBurstFxController(this.eventBus);
     this.enemyBurstFxRenderer = new EnemyBurstFxRenderer(this);
@@ -290,6 +293,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private render(): void {
+    this.abyssBackground.update(this.worldSystem.getRenderSnapshot(), this.renderDeltaSeconds);
     this.syncActorsToPhysics();
     if (this.stageTransitionActive) {
       this.enemyBurstFxController.clear();
@@ -717,6 +721,7 @@ export class GameScene extends Phaser.Scene {
     this.inputSystem.destroy();
     this.enemyBurstFxRenderer.destroy();
     this.myriapodaRenderer.destroy();
+    this.abyssBackground.destroy();
     this.worldSystem.destroy();
     this.eventBus.removeAllListeners();
 

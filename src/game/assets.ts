@@ -1,5 +1,15 @@
 export const textureKeys = {
   head: 'head',
+  background: {
+    softCloud: 'background-soft-cloud',
+    bioWeb: 'background-bio-web',
+    membraneStain: 'background-membrane-stain',
+    softGlowDot: 'background-soft-glow-dot',
+    particleDot: 'background-particle-dot',
+    softParticle: 'background-soft-particle',
+    moteFragment: 'background-mote-fragment',
+    corruptionCrack: 'background-corruption-crack',
+  },
   pickups: {
     biomass: 'pickup-basic-biomass',
     tissue: 'pickup-advanced-tissue',

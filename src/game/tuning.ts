@@ -1,3 +1,10 @@
+import {
+  BG_COLORS,
+  BIO_COLORS,
+  DEAD_COLORS,
+  PARTICLE_COLORS,
+} from '@/background/palette';
+
 export const tuning = {
   // Core simulation
   pixelsPerMeter: 36, // 36 pixels = 1 meter; this is used for physics scaling and general size reference.
@@ -149,7 +156,123 @@ export const tuning = {
   uiPanelAccentColor: 0x9fdfff,
   uiDangerColor: 0xff6d78,
 
+  // Background
+  background: {
+    palette: {
+      bg: BG_COLORS,
+      bio: BIO_COLORS,
+      dead: DEAD_COLORS,
+      particles: PARTICLE_COLORS,
+    },
+    parallax: {
+      layer1: 0.08,
+      layer2: 0.16,
+      farDust: 0.22,
+      spores: 0.28,
+      nearMotes: 0.35,
+      layer4: 0.12,
+    },
+    /** All abyss `depths` must stay below `worldHexBaseDepth` so the hex grid draws on top. */
+    depths: {
+      layer1: 0.04,
+      layer4Far: 0.08,
+      /** Sits under main tissue webs; same texture, capillary tint. */
+      layer2Capillary: 0.118,
+      layer2: 0.14,
+      farDust: 0.18,
+      layer4Near: 0.22,
+      spores: 0.28,
+      /** Larger soft particles drifting through the depth field (between spores and near motes). */
+      bioFloat: 0.605,
+      nearMotes: 0.72,
+      overlayBase: 0.36,
+      overlayTissue: 0.31,
+      overlayDust: 0.36,
+    },
+    alpha: {
+      layer1CloudMin: 0.12,
+      layer1CloudMax: 0.2,
+      layer1Vignette: 0.07,
+      tissueWebMin: 0.2,
+      tissueWebMax: 0.28,
+      membraneMin: 0.06,
+      membraneMax: 0.14,
+      corruptionMin: 0.08,
+      corruptionMax: 0.18,
+      crackMin: 0.1,
+      crackMax: 0.18,
+      overlayCloudMin: 0.08,
+      overlayCloudMax: 0.14,
+      overlayTissueMin: 0.04,
+      overlayTissueMax: 0.09,
+    },
+    motion: {
+      layer1DriftPxPerSecond: 3.2,
+      layer2DriftPxPerSecond: 4.8,
+      layer4DriftPxPerSecond: 2.6,
+      overlayDriftPxPerSecond: 2.4,
+      breatheMinSeconds: 4,
+      breatheMaxSeconds: 8,
+      corruptionPulseMinSeconds: 5,
+      corruptionPulseMaxSeconds: 9,
+      rareFlickerMinSeconds: 6,
+      rareFlickerMaxSeconds: 14,
+    },
+    particles: {
+      farDustMax: 130,
+      farDustFrequencyMs: 155,
+      /** Dense global fill; emit zone covers full backdrop coverage. */
+      sporesMax: 150,
+      sporesFrequencyMs: 82,
+      /** Mid-layer soft bio drifters (full spore zone). */
+      bioFloatMax: 48,
+      bioFloatFrequencyMs: 125,
+      nearMotesMax: 28,
+      nearMotesFrequencyMs: 640,
+      livingAccentMax: 28,
+      livingAccentFrequencyMs: 360,
+      overlayDustMax: 52,
+      overlayDustFrequencyMs: 300,
+      overlayGlowMax: 22,
+      overlayGlowFrequencyMs: 420,
+    },
+    coverage: {
+      gameplayWidthMultiplier: 1.9,
+      gameplayHeightMultiplier: 1.9,
+      overlayWidthMultiplier: 1.12,
+      overlayHeightMultiplier: 1.12,
+      minimumWorldSizePx: 1500,
+      viewportHalfCoverMultiplier: 1.22,
+      viewportRadialCoverMultiplier: 1.18,
+    },
+    /** Backdrop anchor: blend world center toward player (matches hex world at origin). */
+    layer1FocusBias: 0.88,
+    /** Tiled bio-web texture across the full coverage rect (cols×rows instances). */
+    tissueWebGrid: { cols: 6, rows: 5 },
+    tissueWebBaseSizeFactor: 0.26,
+    /** Applied to final tile width/height (lower = thinner, more filigree). */
+    tissueWebTileScale: 0.52,
+    /** Minimum visibility for web tiles in low-bio areas (still read as “filled”). */
+    tissueWebAlphaFloor: 0.12,
+    /** Finer reddish vascular layer (staggered grid, drawn below main webs). */
+    tissueWebCapillaryGrid: { cols: 7, rows: 6 },
+    tissueWebCapillaryBaseFactor: 0.24,
+    tissueWebCapillaryTileScale: 0.42,
+    tissueWebCapillaryAlphaMul: 1.05,
+    tissueWebCapillaryAlphaFloor: 0.22,
+    reactivity: {
+      maxStrategicLivingAnchors: 3,
+      stageOneCorruptionAnchors: 2,
+      maxCorruptionAnchors: 5,
+      livingInfluenceRadiusMultiplier: 3.2,
+      corruptionInfluenceRadiusMultiplier: 3.8,
+      conquestPulseBoost: 0.18,
+    },
+  },
+
   // World rendering
+  /** Hex cell fills and everything layered from them; keep above all `background.depths`. */
+  worldHexBaseDepth: 1,
   worldBorderBaseWidth: 8,
   worldBorderProgressWidth: 10,
   worldBorderGlowWidth: 4,
