@@ -29,7 +29,7 @@ export class BodyChain {
   ): void {
     const leadX = headX - Math.cos(headAngle) * tuning.headToBodyOffsetPx;
     const leadY = headY - Math.sin(headAngle) * tuning.headToBodyOffsetPx;
-    const nextSegments = updateFollowSegments(this.segments, leadX, leadY, headAngle, {
+    updateFollowSegments(this.segments, leadX, leadY, headAngle, {
       spacing: tuning.segmentSpacing,
       stiffness: 0.9,
     });
@@ -37,9 +37,8 @@ export class BodyChain {
       dashMotion &&
       (dashMotion.shakeStrength > 0 || dashMotion.motionStrength > 0)
     ) {
-      this.applyDashMotion(nextSegments, dashMotion);
+      this.applyDashMotion(this.segments, dashMotion);
     }
-    this.segments = nextSegments;
   }
 
   getStomachSegmentIndex(): number {

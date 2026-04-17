@@ -44,6 +44,9 @@ export class WorldSystem {
   private readonly conquestSystem: ConquestSystem;
   private lastFocus = { x: 0, y: 0 };
   private lastSnapshot: WorldRenderSnapshot;
+  // Reused across ensureShellback() calls so we don't allocate a new Set +
+  // intermediate array every fixed step.
+  private readonly shellbackGuardCellKeyScratch = new Set<string>();
 
   constructor(
     scene: Phaser.Scene,
@@ -190,7 +193,7 @@ export class WorldSystem {
   }
 
   private ensureEnemies(headPosition: { x: number; y: number }, cells: typeof this.world.cells): void {
-    const activeShellbackCount = [...this.enemies.values()].filter(isShellbackEnemy).length;
+    const activeShellbackCount = this.countShellbacks();
     const activeAmbientEnemyCount = this.enemies.size - activeShellbackCount;
     const desired = Math.min(
       tuning.targetEnemyCount + Math.max(0, this.world.stage - 1),
@@ -222,7 +225,7 @@ export class WorldSystem {
       return;
     }
 
-    const activeShellbackCount = [...this.enemies.values()].filter(isShellbackEnemy).length;
+    const activeShellbackCount = this.countShellbacks();
     if (
       activeShellbackCount >= tuning.shellbackMaxActiveCount ||
       this.shellbackRespawnTimer > 0 ||
@@ -231,11 +234,7 @@ export class WorldSystem {
       return;
     }
 
-    const claimedGuardCellKeys = new Set(
-      [...this.enemies.values()]
-        .filter(isShellbackEnemy)
-        .map((enemy) => enemy.guardCellKey),
-    );
+    const claimedGuardCellKeys = this.collectShellbackGuardCellKeys();
     const guardCell = pickShellbackGuardCell(cells, claimedGuardCellKeys, this.randomFloat);
     if (!guardCell) {
       return;
@@ -250,6 +249,27 @@ export class WorldSystem {
       'shellback',
     );
     this.enemies.set(enemy.id, enemy);
+  }
+
+  private countShellbacks(): number {
+    let count = 0;
+    for (const enemy of this.enemies.values()) {
+      if (isShellbackEnemy(enemy)) {
+        count += 1;
+      }
+    }
+    return count;
+  }
+
+  private collectShellbackGuardCellKeys(): Set<string> {
+    const target = this.shellbackGuardCellKeyScratch;
+    target.clear();
+    for (const enemy of this.enemies.values()) {
+      if (isShellbackEnemy(enemy)) {
+        target.add(enemy.guardCellKey);
+      }
+    }
+    return target;
   }
 
   private handleEnemyKilled(payload: { enemyId?: string; enemyType: Enemy['type']; x: number; y: number }): void {
@@ -318,6 +338,7 @@ export class WorldSystem {
       focusX: this.lastFocus.x,
       focusY: this.lastFocus.y,
       conquest: this.conquestSystem.getSnapshot(),
+      generation: this.world.generation,
     };
   }
 }

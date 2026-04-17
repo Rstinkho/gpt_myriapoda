@@ -1,10 +1,16 @@
 import * as Phaser from 'phaser';
 import { EvolutionBackdropRenderer } from '@/background/EvolutionBackdropRenderer';
+import {
+  deriveJitterSeed,
+  drawJitteredRoundedRect,
+  drawJitteredRoundedRectFill,
+} from '@/evolution/evolutionBorderStyle';
 import { EvolutionEnhancementBranch } from '@/evolution/EvolutionEnhancementBranch';
 import {
   getEvolutionUpgradeFamily,
   type EvolutionWorldActionId,
 } from '@/evolution/evolutionData';
+import { EvolutionTooltip } from '@/evolution/EvolutionTooltip';
 import {
   computeEvolutionContentSplit,
   evolutionToolbarResourceIds,
@@ -106,6 +112,7 @@ export class EvolutionScene extends Phaser.Scene {
   private worldActionCallbacks?: EvolutionWorldActionCallbacks;
   private armedWorldAction: EvolutionWorldActionId | null = null;
   private worldActionMessage = '';
+  private tooltip?: EvolutionTooltip;
 
   constructor() {
     super('EvolutionScene');
@@ -147,6 +154,8 @@ export class EvolutionScene extends Phaser.Scene {
     this.worldActionsSubTabHit = this.createWorldSubTabHit('actions', WORLD_SUBTAB_ACTIONS_W);
     this.worldBuildingsSubTabHit = this.createWorldSubTabHit('buildings', WORLD_SUBTAB_BUILDINGS_W);
 
+    this.tooltip = new EvolutionTooltip(this, 40);
+
     this.title = this.add
       .text(0, 0, 'EVOLUTION', {
         fontFamily: 'Georgia',
@@ -182,29 +191,30 @@ export class EvolutionScene extends Phaser.Scene {
     this.contextTitle = this.add
       .text(0, 0, '', {
         fontFamily: 'Georgia',
-        fontSize: '24px',
+        fontSize: '20px',
         color: '#f6fbff',
         stroke: '#061014',
-        strokeThickness: 5,
+        strokeThickness: 4,
+        lineSpacing: 4,
       })
       .setDepth(21);
 
     this.contextBody = this.add
       .text(0, 0, '', {
         fontFamily: 'Trebuchet MS',
-        fontSize: '16px',
-        color: '#beddd6',
-        lineSpacing: 8,
+        fontSize: '13px',
+        color: '#cfe7e0',
+        lineSpacing: 5,
       })
       .setDepth(21);
 
     this.contextStats = this.add
       .text(0, 0, '', {
         fontFamily: 'Trebuchet MS',
-        fontSize: '15px',
+        fontSize: '13px',
         color: '#90d7cb',
-        lineSpacing: 10,
-        letterSpacing: 0.8,
+        lineSpacing: 6,
+        letterSpacing: 0.6,
       })
       .setDepth(21);
 
@@ -228,7 +238,6 @@ export class EvolutionScene extends Phaser.Scene {
         fontSize: '14px',
         color: '#9fd8cc',
         letterSpacing: 2,
-        backgroundColor: '#0a181c',
         padding: { left: 8, right: 8, top: 6, bottom: 6 },
       })
       .setDepth(21);
@@ -269,6 +278,10 @@ export class EvolutionScene extends Phaser.Scene {
     this.refreshWorldActionCards();
   }
 
+  getTooltip(): EvolutionTooltip | undefined {
+    return this.tooltip;
+  }
+
   update(_time: number, deltaMs: number): void {
     if (
       (this.closeKey && Phaser.Input.Keyboard.JustDown(this.closeKey)) ||
@@ -281,6 +294,7 @@ export class EvolutionScene extends Phaser.Scene {
     const deltaSeconds = Math.min(0.05, deltaMs / 1000);
     if (this.section === 'myriapoda') {
       this.preview?.update(deltaSeconds);
+      this.enhancementBranch?.update(deltaSeconds);
     } else {
       this.worldView?.update(deltaSeconds);
     }
@@ -380,6 +394,7 @@ export class EvolutionScene extends Phaser.Scene {
       this.armedWorldAction = null;
       this.worldActionMessage = '';
     }
+    this.tooltip?.hide();
     this.updateSectionVisibility();
     this.handleResize();
     this.refreshWorldActionCards();
@@ -611,14 +626,18 @@ export class EvolutionScene extends Phaser.Scene {
       this.headerSeparator.y2,
     );
 
-    this.chromeGraphics.lineStyle(1.1, 0x8fd4c6, 0.4);
-    this.chromeGraphics.strokeRoundedRect(
-      this.outerBounds.x,
-      this.outerBounds.y,
-      this.outerBounds.width,
-      this.outerBounds.height,
-      38,
-    );
+    drawJitteredRoundedRect(this.chromeGraphics, {
+      x: this.outerBounds.x,
+      y: this.outerBounds.y,
+      width: this.outerBounds.width,
+      height: this.outerBounds.height,
+      radius: 38,
+      seed: deriveJitterSeed('evolution-outer-panel'),
+      jitter: 1.15,
+      strokeWidth: 1.1,
+      color: 0x8fd4c6,
+      alpha: 0.4,
+    });
 
     this.drawSectionTab(this.myriapodaTab, 'myriapoda', TAB_MYRIAPODA_W, TAB_MYRIAPODA_H);
     this.drawSectionTab(this.worldTab, 'world', TAB_WORLD_W, TAB_WORLD_H);
@@ -638,30 +657,39 @@ export class EvolutionScene extends Phaser.Scene {
       );
     }
 
-    this.chromeGraphics.lineStyle(1, 0x7aaea4, 0.26);
-    this.chromeGraphics.strokeRoundedRect(
-      this.contentBounds.x,
-      this.contentBounds.y,
-      this.contentBounds.width,
-      this.contentBounds.height,
-      34,
-    );
+    // Hand-drawn jittered border around the live preview area (Myriapoda
+    // preview when on `myriapoda`, strategic hex view when on `world`). The
+    // seed differs per section so each view has its own consistent silhouette.
+    drawJitteredRoundedRect(this.chromeGraphics, {
+      x: this.contentBounds.x,
+      y: this.contentBounds.y,
+      width: this.contentBounds.width,
+      height: this.contentBounds.height,
+      radius: 34,
+      seed: deriveJitterSeed(`evolution-content-${this.section}`),
+      jitter: 1.2,
+      strokeWidth: 1.2,
+      color: 0x7aaea4,
+      alpha: 0.55,
+    });
 
-    if (this.section === 'myriapoda') {
-      this.drawPanelCard(this.detailCardBounds);
-      this.drawPanelCard(this.statsCardBounds);
-      this.drawPanelCard(this.lowerPanelBounds);
-    }
+    // Detail / stats / tree panels intentionally have no background or border —
+    // they read as clean text+graphic groups against the evolution backdrop.
 
-    if (this.closeHovered && this.closeButton) {
-      this.chromeGraphics.lineStyle(1, 0xa4fff1, 0.5);
-      this.chromeGraphics.strokeRoundedRect(
-        this.closeButton.x - 8,
-        this.closeButton.y - 5,
-        this.closeButton.width + 16,
-        this.closeButton.height + 10,
-        18,
-      );
+    // Close: border only (no fill) — text has no backgroundColor.
+    if (this.closeButton) {
+      drawJitteredRoundedRect(this.chromeGraphics, {
+        x: this.closeButton.x - 8,
+        y: this.closeButton.y - 5,
+        width: this.closeButton.width + 16,
+        height: this.closeButton.height + 10,
+        radius: 18,
+        seed: deriveJitterSeed('evolution-close'),
+        jitter: 1,
+        strokeWidth: this.closeHovered ? 1.25 : 1.05,
+        color: this.closeHovered ? 0xa4fff1 : 0x7aaea4,
+        alpha: this.closeHovered ? 0.52 : 0.36,
+      });
     }
   }
 
@@ -678,17 +706,6 @@ export class EvolutionScene extends Phaser.Scene {
       headingWidth,
       headingHeight,
     );
-  }
-
-  private drawPanelCard(bounds: Phaser.Geom.Rectangle): void {
-    if (!this.chromeGraphics) {
-      return;
-    }
-
-    this.chromeGraphics.fillStyle(0x08161c, 0.94);
-    this.chromeGraphics.fillRoundedRect(bounds.x, bounds.y, bounds.width, bounds.height, 22);
-    this.chromeGraphics.lineStyle(1, 0x7abbb0, 0.24);
-    this.chromeGraphics.strokeRoundedRect(bounds.x, bounds.y, bounds.width, bounds.height, 22);
   }
 
   private bindWorldSubTabHitAreas(): void {
@@ -711,17 +728,33 @@ export class EvolutionScene extends Phaser.Scene {
     const x = label.x - width / 2;
     const y = label.y - height / 2;
 
-    this.chromeGraphics.fillStyle(
-      isActive ? 0x103137 : isHovered ? 0x0d242a : 0x09171d,
-      isActive ? 0.95 : isHovered ? 0.88 : 0.78,
-    );
-    this.chromeGraphics.fillRoundedRect(x, y, width, height, 15);
-    this.chromeGraphics.lineStyle(
-      1.05,
-      isActive ? 0xcffdf8 : isHovered ? 0xa8e0d8 : 0x5a8078,
-      isActive ? 0.55 : isHovered ? 0.38 : 0.22,
-    );
-    this.chromeGraphics.strokeRoundedRect(x, y, width, height, 15);
+    const fillColor = isActive ? 0x103137 : isHovered ? 0x0d242a : 0x09171d;
+    const fillAlpha = isActive ? 0.95 : isHovered ? 0.88 : 0.78;
+    const strokeColor = isActive ? 0xcffdf8 : isHovered ? 0xa8e0d8 : 0x5a8078;
+    const strokeAlpha = isActive ? 0.55 : isHovered ? 0.38 : 0.22;
+    drawJitteredRoundedRectFill(this.chromeGraphics, {
+      x,
+      y,
+      width,
+      height,
+      radius: 15,
+      seed: deriveJitterSeed(`evolution-world-subtab-${view}`),
+      jitter: 0.95,
+      color: fillColor,
+      alpha: fillAlpha,
+    });
+    drawJitteredRoundedRect(this.chromeGraphics, {
+      x,
+      y,
+      width,
+      height,
+      radius: 15,
+      seed: deriveJitterSeed(`evolution-world-subtab-${view}`),
+      jitter: 0.95,
+      strokeWidth: 1.05,
+      color: strokeColor,
+      alpha: strokeAlpha,
+    });
   }
 
   private drawSectionTab(
@@ -739,17 +772,33 @@ export class EvolutionScene extends Phaser.Scene {
     const x = label.x - width / 2;
     const y = label.y - height / 2;
 
-    this.chromeGraphics.fillStyle(
-      isActive ? 0x103137 : isHovered ? 0x0d242a : 0x09171d,
-      isActive ? 0.95 : isHovered ? 0.88 : 0.78,
-    );
-    this.chromeGraphics.fillRoundedRect(x, y, width, height, 17);
-    this.chromeGraphics.lineStyle(
-      1.1,
-      isActive ? 0xcffdf8 : isHovered ? 0xa8e0d8 : 0x5a8078,
-      isActive ? 0.55 : isHovered ? 0.38 : 0.22,
-    );
-    this.chromeGraphics.strokeRoundedRect(x, y, width, height, 17);
+    const fillColor = isActive ? 0x103137 : isHovered ? 0x0d242a : 0x09171d;
+    const fillAlpha = isActive ? 0.95 : isHovered ? 0.88 : 0.78;
+    const strokeColor = isActive ? 0xcffdf8 : isHovered ? 0xa8e0d8 : 0x5a8078;
+    const strokeAlpha = isActive ? 0.55 : isHovered ? 0.38 : 0.22;
+    drawJitteredRoundedRectFill(this.chromeGraphics, {
+      x,
+      y,
+      width,
+      height,
+      radius: 17,
+      seed: deriveJitterSeed(`evolution-section-tab-${section}`),
+      jitter: 0.95,
+      color: fillColor,
+      alpha: fillAlpha,
+    });
+    drawJitteredRoundedRect(this.chromeGraphics, {
+      x,
+      y,
+      width,
+      height,
+      radius: 17,
+      seed: deriveJitterSeed(`evolution-section-tab-${section}`),
+      jitter: 0.95,
+      strokeWidth: 1.1,
+      color: strokeColor,
+      alpha: strokeAlpha,
+    });
   }
 
   private refreshContextPanel(): void {
@@ -775,24 +824,31 @@ export class EvolutionScene extends Phaser.Scene {
       this.contextTitle.setText(focusedName.toUpperCase());
       this.contextBody.setText(
         focused
-          ? 'Selected anatomy routes into a priced upgrade family. These nodes are preview-only in this pass, but their costs now differ by body system.'
-          : 'Hover or click the animated myriapoda preview to inspect the head, limbs, tail, stomach, and each body circle individually.',
+          ? 'Hover a node to inspect.'
+          : 'Click the preview to pin a body part.',
       );
       this.contextStats.setText(
         [
           `SEGMENTS: ${this.snapshot.myriapoda.segmentCount}`,
-          `STORED MATTER: ${this.snapshot.myriapoda.stomachResources.length}/${this.snapshot.myriapoda.stomachCapacity}`,
+          `STORED: ${this.snapshot.myriapoda.stomachResources.length}/${this.snapshot.myriapoda.stomachCapacity}`,
           `PARASITES: ${this.snapshot.myriapoda.parasiteCount}`,
-          `UPGRADE FAMILY: ${family.toUpperCase()}`,
+          `FAMILY: ${family.toUpperCase()}`,
           `FOCUS: ${focused ? focused.label : 'None'}`,
         ].join('\n'),
       );
-      this.contextTitle.setPosition(this.detailCardBounds.x + 18, this.detailCardBounds.y + 18);
-      this.contextBody.setPosition(this.detailCardBounds.x + 18, this.detailCardBounds.y + 64);
-      this.contextBody.setWordWrapWidth(this.detailCardBounds.width - 36);
+      const titleX = this.detailCardBounds.x + 14;
+      const titleY = this.detailCardBounds.y + 8;
+      const titleWrap = this.detailCardBounds.width - 28;
+      this.contextTitle.setPosition(titleX, titleY);
+      this.contextTitle.setWordWrapWidth(titleWrap);
+      // Place the body text just below the (possibly wrapped) title to avoid
+      // overlap when long part names break onto a second line.
+      const bodyY = titleY + this.contextTitle.height + 6;
+      this.contextBody.setPosition(titleX, bodyY);
+      this.contextBody.setWordWrapWidth(titleWrap);
       this.contextStats.setVisible(true);
-      this.contextStats.setPosition(this.statsCardBounds.x + 18, this.statsCardBounds.y + 22);
-      this.contextStats.setWordWrapWidth(this.statsCardBounds.width - 36);
+      this.contextStats.setPosition(this.statsCardBounds.x + 14, this.statsCardBounds.y + 12);
+      this.contextStats.setWordWrapWidth(this.statsCardBounds.width - 28);
       this.enhancementBranch?.layout(this.lowerPanelBounds, family);
       this.footerHint.setText('CLICK TO PIN A BODY PART  |  E / ESC CLOSE');
       this.renderChrome();
@@ -949,6 +1005,8 @@ export class EvolutionScene extends Phaser.Scene {
     this.enhancementBranch?.destroy();
     this.worldActionCards?.destroy();
     this.worldBuildingsPanel?.destroy();
+    this.tooltip?.destroy();
+    this.tooltip = undefined;
     this.worldActionsSubTab?.destroy();
     this.worldBuildingsSubTab?.destroy();
     this.worldActionsSubTabHit?.destroy();

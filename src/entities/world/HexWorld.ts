@@ -17,6 +17,16 @@ export class HexWorld {
   fillLevel = 0;
   fillThreshold: number;
   private readonly chooseIndex: ChooseIndex;
+  /**
+   * Monotonic counter bumped whenever the cell set or any cell's geometry-relevant state
+   * (ownership / conquest) changes. Consumers (e.g. the border renderer) use it as a
+   * fingerprint for caches that depend on world geometry — far cheaper and more reliable
+   * than hashing cell coords every frame.
+   *
+   * Starts at 1 so that a freshly-constructed fingerprint cache (empty string / 0) is
+   * guaranteed to mismatch.
+   */
+  private generationCounter = 1;
 
   constructor(chooseIndex: ChooseIndex = (length) => randomInt(0, length - 1)) {
     this.grid = new HexGrid(tuning.worldHexSize);
@@ -26,6 +36,10 @@ export class HexWorld {
     this.chooseIndex = chooseIndex;
     this.assignStrategicCells(this.cellsInternal, this.stage);
     this.bounds = this.computeBounds();
+  }
+
+  get generation(): number {
+    return this.generationCounter;
   }
 
   get cells(): HexCell[] {
@@ -84,6 +98,7 @@ export class HexWorld {
 
     target.conquestState = 'active';
     target.buildable = false;
+    this.generationCounter += 1;
     return target;
   }
 
@@ -91,6 +106,7 @@ export class HexWorld {
     const active = this.getActiveConquestCell();
     if (active?.conquestState === 'active') {
       active.conquestState = undefined;
+      this.generationCounter += 1;
     }
   }
 
@@ -103,6 +119,7 @@ export class HexWorld {
     target.ownerId = ownerId;
     target.buildable = true;
     target.conquestState = 'owned';
+    this.generationCounter += 1;
     return target;
   }
 
@@ -130,6 +147,7 @@ export class HexWorld {
     this.fillThreshold = expanded.fillThreshold;
     this.cellsInternal = expanded.cells;
     this.bounds = this.computeBounds();
+    this.generationCounter += 1;
     return expanded.event;
   }
 

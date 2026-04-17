@@ -86,6 +86,7 @@ export class MyriapodaRenderer {
   private readonly stomachNoiseTextureKey: string;
   private readonly transformables: TransformableDisplayObject[] = [];
   private elapsed = 0;
+  private stomachNoiseFrameParity = 0;
 
   constructor(scene: Phaser.Scene, config: MyriapodaRendererConfig = {}) {
     this.scene = scene;
@@ -211,6 +212,14 @@ export class MyriapodaRenderer {
     myriapoda.head.sprite.setVisible(false);
 
     this.clear();
+    // Hide bloom-enabled FX layers by default — each visible graphic with a bloom filter
+    // triggers a full filter pass even when its draw buffer is empty (FBO allocation +
+    // blur passes). Individual renderers flip these back on only when they emit draws.
+    this.dashRearWhirlGraphics.setVisible(false);
+    this.dashSideWaveGraphics.setVisible(false);
+    this.vacuumGraphics.setVisible(false);
+    this.damageFxGraphics.setVisible(false);
+
     this.renderBody(myriapoda, headPosition);
     this.renderTail(myriapoda);
     this.renderDashFx(myriapoda, dashState);
@@ -831,17 +840,23 @@ export class MyriapodaRenderer {
   }
 
   private renderDamageEffects(myriapoda: Myriapoda): void {
-    for (const effect of myriapoda.getDamageEffects()) {
+    const effects = myriapoda.getDamageEffects();
+    let anyRendered = false;
+    for (const effect of effects) {
       const progress = Phaser.Math.Clamp(effect.timer / effect.duration, 0, 1);
       if (progress <= 0) {
         continue;
       }
 
+      anyRendered = true;
       if (effect.kind === 'limb-loss') {
         this.renderLimbLossEffect(effect, progress);
       } else {
         this.renderStomachHitEffect(effect, progress);
       }
+    }
+    if (anyRendered) {
+      this.damageFxGraphics.setVisible(true);
     }
   }
 
@@ -974,6 +989,9 @@ export class MyriapodaRenderer {
     if (dashState.motionStrength <= 0.01) {
       return;
     }
+
+    this.dashRearWhirlGraphics.setVisible(true);
+    this.dashSideWaveGraphics.setVisible(true);
 
     const dashDirection = normalize(dashState.directionX, dashState.directionY);
     const forward =
@@ -1212,6 +1230,7 @@ export class MyriapodaRenderer {
       Math.max(0.6, 0.95 * scale),
     );
 
+    this.vacuumGraphics.setVisible(true);
     this.renderVacuumMouth(x, y, angle, scale, mouthOpen, consumePulse);
     this.renderVacuumVortex(vacuum, scale);
 
@@ -1515,6 +1534,13 @@ export class MyriapodaRenderer {
   private animateStomachFxLayers(): void {
     this.stomachGradient.offset =
       Math.sin(this.elapsed * tuning.myriapodaFxStomachNoiseFlowSpeed * 0.6) * 0.06;
+    // Re-render the simplex-noise texture every other frame. The result is an FBO blit
+    // of a procedural noise shader which is GPU-heavy; 30Hz vs 60Hz is indistinguishable
+    // on the stomach at normal play speeds.
+    this.stomachNoiseFrameParity ^= 1;
+    if (this.stomachNoiseFrameParity === 0) {
+      return;
+    }
     this.stomachNoiseQuad.noiseFlow =
       this.elapsed * tuning.myriapodaFxStomachNoiseFlowSpeed;
     this.stomachNoiseQuad.noiseOffset = [

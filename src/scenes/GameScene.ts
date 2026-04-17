@@ -85,6 +85,12 @@ export class GameScene extends Phaser.Scene {
   private accumulator = 0;
   private uiMode: UiMode = 'minimal';
   private renderDeltaSeconds = tuning.fixedStepSeconds;
+  // HUD only needs updates at around human-visible rates (resources, stage,
+  // timers). Emitting it every fixed step (60 Hz) forces UIScene to recompute
+  // the whole snapshot + layout every frame, which showed up as a measurable
+  // cost in the profiler. We emit every Nth fixed step and allow instant
+  // emission for discrete game events (pickup, spend, expansion, etc.).
+  private hudEmitCounter = 0;
   private lastMoveIntent: MoveIntent = { ...stationaryMoveIntent };
   private lastDashState: DashStateSnapshot = { ...idleDashState };
   private stageTransitionActive = false;
@@ -183,7 +189,7 @@ export class GameScene extends Phaser.Scene {
       requestEvolutionOpen: () => this.openEvolutionScene(),
       requestUiModeCycle: () => this.cycleUiMode(),
     });
-    this.eventBus.emit(GameEvents.hudChanged);
+    this.forceEmitHudChanged();
   }
 
   update(_time: number, deltaMs: number): void {
@@ -268,10 +274,15 @@ export class GameScene extends Phaser.Scene {
     this.digestSystem.update(this.myriapoda, tuning.fixedStepSeconds);
     this.combatSystem.update(this.myriapoda, this.enemies, this.collisions, this.physicsWorld.world);
 
-    this.myriapoda.syncBodyAttachments(0, dashState);
+    // Previously there was a second `syncBodyAttachments(0, dashState)` here
+    // as a defensive resync. None of the systems between the first sync (line
+    // above follow-chain) and this point actually mutate `body.segments` — the
+    // only place that can is `PlayerDamageSystem.removeSegmentAt` during
+    // `aiSystem.update`, which runs *before* the first sync. The duplicate was
+    // pure waste at 60 Hz (tail motor joint writes + stomach anchor redo).
     const headPixelPosition = vec2ToPixels(this.myriapoda.head.body.getPosition());
     this.worldSystem.update(headPixelPosition);
-    this.eventBus.emit(GameEvents.hudChanged);
+    this.emitHudChanged();
   }
 
   private fixedUpdateStageTransition(): void {
@@ -289,7 +300,7 @@ export class GameScene extends Phaser.Scene {
       this.respawnTransitionPickups();
     }
 
-    this.eventBus.emit(GameEvents.hudChanged);
+    this.emitHudChanged();
   }
 
   private render(): void {
@@ -518,6 +529,7 @@ export class GameScene extends Phaser.Scene {
         focusX: 0,
         focusY: 0,
         conquest: this.worldSystem.getConquestProgress(),
+        generation: this.worldSystem.world.generation,
       },
     };
   }
@@ -591,7 +603,7 @@ export class GameScene extends Phaser.Scene {
       };
     }
 
-    this.eventBus.emit(GameEvents.hudChanged);
+    this.forceEmitHudChanged();
     return {
       success: true,
     };
@@ -617,6 +629,31 @@ export class GameScene extends Phaser.Scene {
 
   private cycleUiMode(): void {
     this.uiMode = cycleUiMode(this.uiMode);
+    this.forceEmitHudChanged();
+  }
+
+  /**
+   * Fixed-step HUD emit: rate-limited to every `tuning.hudEmitInterval` ticks
+   * (default 4 → ~15 Hz at 60 Hz fixed step). The UI snapshot covers values
+   * that change gradually (biomass, health, stage timer); 15 Hz is well above
+   * the perceptual threshold for numeric readouts and cuts UIScene.refresh()
+   * invocations by ~4×.
+   */
+  private emitHudChanged(): void {
+    this.hudEmitCounter += 1;
+    if (this.hudEmitCounter < tuning.hudEmitInterval) {
+      return;
+    }
+    this.hudEmitCounter = 0;
+    this.eventBus.emit(GameEvents.hudChanged);
+  }
+
+  /**
+   * Discrete-event HUD emit: bypasses the throttle so actions like picking up
+   * a pickup or spending a resource update the UI immediately.
+   */
+  private forceEmitHudChanged(): void {
+    this.hudEmitCounter = 0;
     this.eventBus.emit(GameEvents.hudChanged);
   }
 

@@ -156,6 +156,12 @@ export interface WorldRenderSnapshot {
   focusX: number;
   focusY: number;
   conquest: ConquestProgressSnapshot | null;
+  /**
+   * Monotonic counter that changes whenever the world cell set or cell-state (conquest,
+   * ownership, etc.) mutates. Used by the renderer to fingerprint geometry-dependent
+   * caches (silhouette mask, ordered border edges) without hashing cells every frame.
+   */
+  generation: number;
 }
 
 export interface CameraImpulsePayload {

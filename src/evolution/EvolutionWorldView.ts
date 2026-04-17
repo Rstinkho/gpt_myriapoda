@@ -14,6 +14,7 @@ import {
   viewportToWorldPoint,
   worldToViewportPoint,
 } from '@/evolution/worldHexPicking';
+import { deriveJitterSeed, drawJitteredRoundedRect } from '@/evolution/evolutionBorderStyle';
 
 function cloneViewport(viewport: EvolutionWorldViewport): EvolutionWorldViewport {
   return { ...viewport };
@@ -239,14 +240,18 @@ export class EvolutionWorldView {
 
     this.clear();
 
-    this.frameGraphics.lineStyle(1, 0x8cbfb6, 0.32);
-    this.frameGraphics.strokeRoundedRect(
-      this.viewport.x,
-      this.viewport.y,
-      this.viewport.width,
-      this.viewport.height,
-      34,
-    );
+    drawJitteredRoundedRect(this.frameGraphics, {
+      x: this.viewport.x,
+      y: this.viewport.y,
+      width: this.viewport.width,
+      height: this.viewport.height,
+      radius: 34,
+      seed: deriveJitterSeed('evolution-world-hex-view'),
+      jitter: 1.15,
+      strokeWidth: 1.1,
+      color: 0x8cbfb6,
+      alpha: 0.32,
+    });
 
     for (const cell of this.snapshot.cells) {
       const screen = worldToViewportPoint(cell.centerX, cell.centerY, this.viewport, this.camera);

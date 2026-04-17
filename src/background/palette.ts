@@ -12,9 +12,11 @@ export const BIO_COLORS = {
   toxicGreen: 0x55c878,
   paleLime: 0xa6e38a,
   /** Backdrop capillary web tints (brighter = reads as active vasculature). */
-  capillaryRose: 0xff7a78,
-  capillaryWine: 0xe84855,
-  capillaryCoral: 0xff9a90,
+  capillaryRose: 0xff5464,
+  capillaryWine: 0xd32235,
+  capillaryCoral: 0xff7a6e,
+  /** Heartbeat hot flush - brief hot core during systole. */
+  capillaryHot: 0xffc2b0,
 } as const;
 
 export const DEAD_COLORS = {

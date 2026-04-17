@@ -1,42 +1,26 @@
 import * as Phaser from 'phaser';
 import {
   createBackdropReactivitySample,
-  getWeightedAnchorCenter,
-  sampleBackdropDensity,
-  sampleBioWebHexOcclusionRect,
-  type BackdropAnchor,
+  getBackdropHexFillRadius,
+  pickPulseEndpoints,
+  samplePulsePosition,
+  type PulseEndpoints,
 } from '@/background/backgroundMath';
+import { VeinMeshRenderer } from '@/background/VeinMeshRenderer';
 import { textureKeys } from '@/game/assets';
 import { tuning } from '@/game/tuning';
 import type { WorldRenderSnapshot } from '@/game/types';
+import { GraphicsMaskController } from '@/phaser/GraphicsMaskController';
+import { createRegularHexPoints, type BorderPoint } from '@/rendering/worldBorderMath';
 
-type AnchorKind = 'center' | 'living' | 'corruption';
-
-interface DriftSpriteSlot {
+interface VeinPulse {
   image: Phaser.GameObjects.Image;
-  anchorKind: AnchorKind;
-  anchorIndex: number;
-  offsetX: number;
-  offsetY: number;
-  driftX: number;
-  driftY: number;
-  speed: number;
-  phase: number;
-  alphaMin: number;
-  alphaMax: number;
-  widthFactor: number;
-  heightFactor: number;
-  scalePulse: number;
-  rotationBase: number;
-  rotationDrift: number;
-}
-
-function clamp(value: number, min = 0, max = 1): number {
-  return Math.max(min, Math.min(max, value));
-}
-
-function lerp(start: number, end: number, t: number): number {
-  return start + (end - start) * t;
+  endpoints: PulseEndpoints;
+  elapsed: number;
+  duration: number;
+  bow: number;
+  active: boolean;
+  trailTint: number;
 }
 
 function blendTowardFocus(
@@ -64,25 +48,21 @@ function createRandomZoneSource(
 export class AbyssBackgroundRenderer {
   private readonly baseGraphics: Phaser.GameObjects.Graphics;
   private readonly vignetteGraphics: Phaser.GameObjects.Graphics;
-  private readonly layer1Clouds: DriftSpriteSlot[];
-  private readonly farCorruptionClouds: DriftSpriteSlot[];
-  private readonly webs: DriftSpriteSlot[];
-  private readonly websCapillary: DriftSpriteSlot[];
-  private readonly membranes: DriftSpriteSlot[];
-  private readonly cracks: DriftSpriteSlot[];
-  private readonly farDustZone = new Phaser.Geom.Rectangle();
+  private readonly veinMesh: VeinMeshRenderer;
+  private readonly pulseGraphics: Phaser.GameObjects.Graphics;
+  private readonly pulses: VeinPulse[] = [];
+  private readonly pulseTints: readonly number[];
+  private readonly hexMask: GraphicsMaskController;
   private readonly sporeZone = new Phaser.Geom.Rectangle();
   private readonly livingAccentZone = new Phaser.Geom.Rectangle();
-  private readonly nearMoteZone = new Phaser.Geom.Rectangle();
   private readonly bioFloatZone = new Phaser.Geom.Rectangle();
-  private readonly farDust: Phaser.GameObjects.Particles.ParticleEmitter;
   private readonly spores: Phaser.GameObjects.Particles.ParticleEmitter;
   private readonly bioFloat: Phaser.GameObjects.Particles.ParticleEmitter;
   private readonly livingAccent: Phaser.GameObjects.Particles.ParticleEmitter;
-  private readonly nearMotes: Phaser.GameObjects.Particles.ParticleEmitter;
   private elapsed = 0;
-  private corruptionFlickerTimer = 8;
-  private corruptionFlickerStrength = 0;
+  private pulseSpawnTimer = 0;
+  private hexMaskFingerprint = '';
+  private readonly hexPointsScratch: BorderPoint[] = createRegularHexPoints(0, 0, 1);
 
   constructor(private readonly scene: Phaser.Scene) {
     this.baseGraphics = scene.add.graphics().setDepth(tuning.background.depths.layer1);
@@ -90,285 +70,7 @@ export class AbyssBackgroundRenderer {
     this.baseGraphics.setScrollFactor(1, 1);
     this.vignetteGraphics.setScrollFactor(1, 1);
 
-    this.layer1Clouds = [
-      this.createImageSlot(textureKeys.background.softCloud, tuning.background.depths.layer1 + 0.02, tuning.background.parallax.layer1, 'center', 0, {
-        offsetX: 120,
-        offsetY: -24,
-        driftX: 18,
-        driftY: 10,
-        speed: 0.18,
-        phase: 0.2,
-        alphaMin: tuning.background.alpha.layer1CloudMin,
-        alphaMax: tuning.background.alpha.layer1CloudMax,
-        widthFactor: 0.98,
-        heightFactor: 0.78,
-        scalePulse: 0.04,
-        rotationBase: 0.14,
-        rotationDrift: 0.02,
-      }),
-      this.createImageSlot(textureKeys.background.softCloud, tuning.background.depths.layer1 + 0.025, tuning.background.parallax.layer1, 'center', 1, {
-        offsetX: -160,
-        offsetY: 88,
-        driftX: 12,
-        driftY: 14,
-        speed: 0.14,
-        phase: 1.1,
-        alphaMin: tuning.background.alpha.layer1CloudMin * 0.9,
-        alphaMax: tuning.background.alpha.layer1CloudMax * 0.88,
-        widthFactor: 0.82,
-        heightFactor: 0.68,
-        scalePulse: 0.035,
-        rotationBase: -0.32,
-        rotationDrift: 0.03,
-      }),
-    ];
-    this.layer1Clouds[0].image.setTint(tuning.background.palette.bg.darkPetrol);
-    this.layer1Clouds[1].image.setTint(tuning.background.palette.bg.deepTeal);
-
-    this.farCorruptionClouds = [
-      this.createImageSlot(textureKeys.background.softCloud, tuning.background.depths.layer4Far, tuning.background.parallax.layer4, 'corruption', 0, {
-        offsetX: -100,
-        offsetY: 120,
-        driftX: 10,
-        driftY: 6,
-        speed: 0.16,
-        phase: 0.7,
-        alphaMin: tuning.background.alpha.corruptionMin,
-        alphaMax: tuning.background.alpha.corruptionMax,
-        widthFactor: 2.6,
-        heightFactor: 2.1,
-        scalePulse: 0.03,
-        rotationBase: 0.2,
-        rotationDrift: 0.03,
-      }),
-      this.createImageSlot(textureKeys.background.softCloud, tuning.background.depths.layer4Far + 0.005, tuning.background.parallax.layer4, 'corruption', 1, {
-        offsetX: 96,
-        offsetY: -82,
-        driftX: 8,
-        driftY: 8,
-        speed: 0.13,
-        phase: 1.8,
-        alphaMin: tuning.background.alpha.corruptionMin * 0.9,
-        alphaMax: tuning.background.alpha.corruptionMax * 0.92,
-        widthFactor: 2.2,
-        heightFactor: 1.9,
-        scalePulse: 0.025,
-        rotationBase: -0.24,
-        rotationDrift: 0.025,
-      }),
-      this.createImageSlot(textureKeys.background.softCloud, tuning.background.depths.layer4Far + 0.01, tuning.background.parallax.layer4, 'corruption', 2, {
-        offsetX: 18,
-        offsetY: 44,
-        driftX: 7,
-        driftY: 10,
-        speed: 0.15,
-        phase: 2.4,
-        alphaMin: tuning.background.alpha.corruptionMin * 0.85,
-        alphaMax: tuning.background.alpha.corruptionMax * 0.86,
-        widthFactor: 1.9,
-        heightFactor: 1.6,
-        scalePulse: 0.02,
-        rotationBase: 0.48,
-        rotationDrift: 0.018,
-      }),
-    ];
-    this.farCorruptionClouds[0].image.setTint(tuning.background.palette.dead.ashViolet);
-    this.farCorruptionClouds[1].image.setTint(tuning.background.palette.dead.deadGray);
-    this.farCorruptionClouds[2].image.setTint(tuning.background.palette.dead.bruisePurple);
-
-    const webTemplates: Omit<DriftSpriteSlot, 'image' | 'anchorKind' | 'anchorIndex'>[] = [
-      {
-        offsetX: -70,
-        offsetY: -18,
-        driftX: 10,
-        driftY: 8,
-        speed: 0.18,
-        phase: 0.4,
-        alphaMin: tuning.background.alpha.tissueWebMin,
-        alphaMax: tuning.background.alpha.tissueWebMax,
-        widthFactor: 5.6,
-        heightFactor: 5.2,
-        scalePulse: 0.04,
-        rotationBase: 0.14,
-        rotationDrift: 0.035,
-      },
-      {
-        offsetX: 96,
-        offsetY: 64,
-        driftX: 12,
-        driftY: 10,
-        speed: 0.16,
-        phase: 1.5,
-        alphaMin: tuning.background.alpha.tissueWebMin * 0.9,
-        alphaMax: tuning.background.alpha.tissueWebMax * 0.92,
-        widthFactor: 5.1,
-        heightFactor: 4.8,
-        scalePulse: 0.03,
-        rotationBase: -0.5,
-        rotationDrift: 0.03,
-      },
-      {
-        offsetX: 14,
-        offsetY: -96,
-        driftX: 8,
-        driftY: 9,
-        speed: 0.14,
-        phase: 2.1,
-        alphaMin: tuning.background.alpha.tissueWebMin * 0.8,
-        alphaMax: tuning.background.alpha.tissueWebMax * 0.82,
-        widthFactor: 4.6,
-        heightFactor: 4.2,
-        scalePulse: 0.028,
-        rotationBase: 0.88,
-        rotationDrift: 0.022,
-      },
-    ];
-    const webTints = [
-      tuning.background.palette.bio.cyanDim,
-      tuning.background.palette.bio.toxicGreen,
-      tuning.background.palette.bio.cyanSoft,
-    ];
-    const { cols, rows } = tuning.background.tissueWebGrid;
-    const webCount = cols * rows;
-    this.webs = [];
-    for (let i = 0; i < webCount; i += 1) {
-      const template = webTemplates[i % webTemplates.length]!;
-      const slot = this.createImageSlot(
-        textureKeys.background.bioWeb,
-        tuning.background.depths.layer2 + (i % 3) * 0.005,
-        1,
-        'living',
-        i % 3,
-        {
-          ...template,
-          phase: template.phase + i * 0.19,
-        },
-      );
-      slot.image.setTint(webTints[i % webTints.length]!);
-      this.webs.push(slot);
-    }
-
-    const capillaryTints = [
-      tuning.background.palette.bio.capillaryRose,
-      tuning.background.palette.bio.capillaryWine,
-      tuning.background.palette.bio.capillaryCoral,
-    ];
-    const { cols: capCols, rows: capRows } = tuning.background.tissueWebCapillaryGrid;
-    const capCount = capCols * capRows;
-    this.websCapillary = [];
-    for (let i = 0; i < capCount; i += 1) {
-      const template = webTemplates[i % webTemplates.length]!;
-      const slot = this.createImageSlot(
-        textureKeys.background.bioWeb,
-        tuning.background.depths.layer2Capillary + (i % 3) * 0.004,
-        1,
-        'living',
-        i % 3,
-        {
-          ...template,
-          phase: template.phase + i * 0.27 + 2.1,
-          speed: template.speed * 1.45,
-          scalePulse: template.scalePulse * 1.35,
-        },
-      );
-      slot.image.setTint(capillaryTints[i % capillaryTints.length]!);
-      slot.image.setBlendMode(Phaser.BlendModes.ADD);
-      this.websCapillary.push(slot);
-    }
-
-    this.membranes = [
-      this.createImageSlot(textureKeys.background.membraneStain, tuning.background.depths.layer2 - 0.01, tuning.background.parallax.layer2, 'living', 0, {
-        offsetX: -92,
-        offsetY: 82,
-        driftX: 7,
-        driftY: 6,
-        speed: 0.13,
-        phase: 0.9,
-        alphaMin: tuning.background.alpha.membraneMin,
-        alphaMax: tuning.background.alpha.membraneMax,
-        widthFactor: 4.8,
-        heightFactor: 4.4,
-        scalePulse: 0.028,
-        rotationBase: -0.24,
-        rotationDrift: 0.016,
-      }),
-      this.createImageSlot(textureKeys.background.membraneStain, tuning.background.depths.layer2 - 0.008, tuning.background.parallax.layer2, 'living', 1, {
-        offsetX: 110,
-        offsetY: -72,
-        driftX: 6,
-        driftY: 8,
-        speed: 0.12,
-        phase: 1.6,
-        alphaMin: tuning.background.alpha.membraneMin * 0.92,
-        alphaMax: tuning.background.alpha.membraneMax * 0.95,
-        widthFactor: 4.2,
-        heightFactor: 3.9,
-        scalePulse: 0.024,
-        rotationBase: 0.38,
-        rotationDrift: 0.018,
-      }),
-      this.createImageSlot(textureKeys.background.membraneStain, tuning.background.depths.layer2 - 0.006, tuning.background.parallax.layer2, 'living', 2, {
-        offsetX: 28,
-        offsetY: 24,
-        driftX: 5,
-        driftY: 7,
-        speed: 0.1,
-        phase: 2.6,
-        alphaMin: tuning.background.alpha.membraneMin * 0.85,
-        alphaMax: tuning.background.alpha.membraneMax * 0.88,
-        widthFactor: 3.9,
-        heightFactor: 3.4,
-        scalePulse: 0.02,
-        rotationBase: -0.6,
-        rotationDrift: 0.014,
-      }),
-    ];
-    this.membranes[0].image.setTint(tuning.background.palette.bg.darkPetrol);
-    this.membranes[1].image.setTint(tuning.background.palette.bg.deepTeal);
-    this.membranes[2].image.setTint(0x17352f);
-
-    this.cracks = Array.from({ length: 4 }, (_, index) =>
-      this.createImageSlot(textureKeys.background.corruptionCrack, tuning.background.depths.layer4Near, tuning.background.parallax.layer4, 'corruption', index, {
-        offsetX: (index % 2 === 0 ? -1 : 1) * (50 + index * 18),
-        offsetY: (index < 2 ? -1 : 1) * (32 + index * 14),
-        driftX: 4,
-        driftY: 5,
-        speed: 0.11 + index * 0.01,
-        phase: 0.6 + index * 0.7,
-        alphaMin: tuning.background.alpha.crackMin,
-        alphaMax: tuning.background.alpha.crackMax,
-        widthFactor: 2.4,
-        heightFactor: 2.4,
-        scalePulse: 0.02,
-        rotationBase: index * 0.45,
-        rotationDrift: 0.016,
-      }),
-    );
-    this.cracks.forEach((slot, index) => {
-      slot.image.setTint(
-        index % 2 === 0
-          ? tuning.background.palette.dead.decayPink
-          : tuning.background.palette.dead.ashViolet,
-      );
-    });
-
-    this.farDust = scene.add.particles(0, 0, textureKeys.background.particleDot, {
-      emitZone: { type: 'random' as const, source: createRandomZoneSource(this.farDustZone) },
-      lifespan: { min: 12000, max: 22000 },
-      speedX: { min: -2, max: 2 },
-      speedY: { min: -4, max: -1 },
-      scale: { start: 0.08, end: 0.02 },
-      alpha: { start: 0.12, end: 0 },
-      quantity: 1,
-      frequency: tuning.background.particles.farDustFrequencyMs,
-      maxAliveParticles: tuning.background.particles.farDustMax,
-      tint: [
-        tuning.background.palette.particles.dust,
-        tuning.background.palette.bio.cyanSoft,
-      ],
-    });
-    this.farDust.setDepth(tuning.background.depths.farDust);
-    this.farDust.setScrollFactor(tuning.background.parallax.farDust);
+    this.veinMesh = new VeinMeshRenderer(scene);
 
     this.spores = scene.add.particles(0, 0, textureKeys.background.softParticle, {
       emitZone: { type: 'random' as const, source: createRandomZoneSource(this.sporeZone) },
@@ -388,7 +90,7 @@ export class AbyssBackgroundRenderer {
       blendMode: Phaser.BlendModes.ADD,
     });
     this.spores.setDepth(tuning.background.depths.spores);
-    this.spores.setScrollFactor(1, 1);
+    this.spores.setScrollFactor(tuning.background.parallax.spores, tuning.background.parallax.spores);
 
     this.bioFloat = scene.add.particles(0, 0, textureKeys.background.softParticle, {
       emitZone: { type: 'random' as const, source: createRandomZoneSource(this.bioFloatZone) },
@@ -410,7 +112,7 @@ export class AbyssBackgroundRenderer {
       blendMode: Phaser.BlendModes.ADD,
     });
     this.bioFloat.setDepth(tuning.background.depths.bioFloat);
-    this.bioFloat.setScrollFactor(1, 1);
+    this.bioFloat.setScrollFactor(tuning.background.parallax.bioFloat, tuning.background.parallax.bioFloat);
 
     this.livingAccent = scene.add.particles(0, 0, textureKeys.background.softGlowDot, {
       emitZone: { type: 'random' as const, source: createRandomZoneSource(this.livingAccentZone) },
@@ -428,33 +130,81 @@ export class AbyssBackgroundRenderer {
       ],
       blendMode: Phaser.BlendModes.ADD,
     });
-    this.livingAccent.setDepth(tuning.background.depths.spores + 0.01);
-    this.livingAccent.setScrollFactor(tuning.background.parallax.nearMotes);
+    this.livingAccent.setDepth(tuning.background.depths.livingAccent);
+    this.livingAccent.setScrollFactor(
+      tuning.background.parallax.livingAccent,
+      tuning.background.parallax.livingAccent,
+    );
 
-    this.nearMotes = scene.add.particles(0, 0, textureKeys.background.moteFragment, {
-      emitZone: { type: 'random' as const, source: createRandomZoneSource(this.nearMoteZone) },
-      lifespan: { min: 9000, max: 14000 },
-      speedX: { min: -6, max: 10 },
-      speedY: { min: -6, max: 5 },
-      rotate: { min: -35, max: 35 },
-      scale: { start: 0.26, end: 0.08 },
-      alpha: { start: 0.28, end: 0 },
-      quantity: 1,
-      frequency: tuning.background.particles.nearMotesFrequencyMs,
-      maxAliveParticles: tuning.background.particles.nearMotesMax,
-      tint: [
-        tuning.background.palette.bio.cyanSoft,
-        tuning.background.palette.particles.dust,
-        tuning.background.palette.bio.paleLime,
-      ],
+    this.pulseGraphics = scene.add.graphics();
+    this.pulseGraphics.setDepth(tuning.background.depths.layer2 + 0.006);
+    this.pulseGraphics.setScrollFactor(1, 1);
+    this.pulseGraphics.enableFilters();
+    Phaser.Actions.AddEffectBloom(this.pulseGraphics, {
+      threshold: 0.2,
+      blurRadius: 12,
+      blurSteps: 2,
+      blendAmount: 0.7,
+      useInternal: true,
     });
-    this.nearMotes.setDepth(tuning.background.depths.nearMotes);
-    this.nearMotes.setScrollFactor(tuning.background.parallax.nearMotes);
+
+    this.pulseTints = [
+      tuning.background.palette.bio.cyanSoft,
+      tuning.background.palette.bio.mintSoft,
+      tuning.background.palette.bio.cyanDim,
+    ];
+    for (let i = 0; i < tuning.background.pulse.max; i += 1) {
+      const image = scene.add.image(0, 0, textureKeys.background.pulseHead);
+      image.setOrigin(0.5);
+      image.setDepth(tuning.background.depths.layer2 + 0.007);
+      image.setScrollFactor(1, 1);
+      image.setBlendMode(Phaser.BlendModes.ADD);
+      image.setAlpha(0);
+      image.setVisible(false);
+      this.pulses.push({
+        image,
+        endpoints: { fromX: 0, fromY: 0, toX: 0, toY: 0, sourceWeight: 0 },
+        elapsed: 0,
+        duration: 1,
+        bow: 0,
+        active: false,
+        trailTint: this.pulseTints[i % this.pulseTints.length]!,
+      });
+    }
+    this.pulseSpawnTimer = Phaser.Math.FloatBetween(
+      tuning.background.pulse.idleIntervalMinSeconds,
+      tuning.background.pulse.idleIntervalMaxSeconds,
+    );
+
+    this.hexMask = new GraphicsMaskController(scene, {
+      viewCamera: scene.cameras.main,
+      viewTransform: 'world',
+      invert: true,
+      useInternal: false,
+      scrollFactor: 1,
+    });
+    this.attachHexMaskTargets();
+  }
+
+  /** Attaches the (inverted) hex-shape mask to every backdrop layer that must hide behind hex cells. */
+  private attachHexMaskTargets(): void {
+    const attach = (go: Phaser.GameObjects.GameObject) => this.hexMask.attach(
+      go as Phaser.GameObjects.GameObject & {
+        enableFilters(): Phaser.GameObjects.GameObject;
+        readonly filters: Phaser.Types.GameObjects.FiltersInternalExternal | null;
+      },
+    );
+
+    attach(this.veinMesh.getGraphics());
+    for (const pulse of this.pulses) attach(pulse.image);
+    attach(this.pulseGraphics);
+    attach(this.spores);
+    attach(this.bioFloat);
+    attach(this.livingAccent);
   }
 
   update(snapshot: WorldRenderSnapshot, deltaSeconds: number): void {
     this.elapsed += deltaSeconds;
-    this.updateCorruptionFlicker(deltaSeconds);
 
     const camera = this.scene.cameras.main;
     const viewWidth = this.scene.scale.width / Math.max(0.0001, camera.zoom);
@@ -485,53 +235,50 @@ export class AbyssBackgroundRenderer {
     };
     const focus = { x: snapshot.focusX, y: snapshot.focusY };
     const layerAnchor = blendTowardFocus(worldCenter, focus, tuning.background.layer1FocusBias);
-    const livingCenter = getWeightedAnchorCenter(sample.livingAnchors);
-
     this.renderLayer1(layerAnchor, coverageWidth, coverageHeight);
-    this.updateSlots(this.farCorruptionClouds, sample.corruptionAnchors, worldCenter, sample, snapshot, coverageWidth * 0.36);
-    this.updateSlots(this.membranes, sample.livingAnchors, livingCenter, sample, snapshot, snapshot.hexSize);
-    this.updateCapillaryWebWorldFill(layerAnchor, coverageWidth, coverageHeight, sample, snapshot);
-    this.updateTissueWebWorldFill(layerAnchor, coverageWidth, coverageHeight, sample, snapshot);
-    this.updateSlots(this.cracks, sample.corruptionAnchors, worldCenter, sample, snapshot, snapshot.hexSize);
-    this.updateParticles(sample, snapshot, layerAnchor, livingCenter, coverageWidth, coverageHeight);
+    this.veinMesh.update(deltaSeconds, sample, snapshot);
+    this.updatePulses(deltaSeconds, sample, snapshot);
+    this.updateParticles(sample, snapshot, layerAnchor, coverageWidth, coverageHeight);
+    this.updateHexMask(snapshot);
+  }
+
+  /**
+   * Rebuilds the hex occlusion mask only when the cell set or hex size actually changes.
+   * The mask lives in world space (scroll factor 1), so camera pan/zoom never requires a rebuild;
+   * this amortizes a per-frame cost down to ~once per world expansion.
+   */
+  private updateHexMask(snapshot: WorldRenderSnapshot): void {
+    const fingerprint = `${snapshot.cells.length}:${snapshot.hexSize.toFixed(2)}:${snapshot.stage}`;
+    if (fingerprint === this.hexMaskFingerprint) {
+      return;
+    }
+    this.hexMaskFingerprint = fingerprint;
+
+    const radius = getBackdropHexFillRadius(snapshot.hexSize);
+    this.hexMask.clear();
+    this.hexMask.drawMask((graphics) => {
+      for (const cell of snapshot.cells) {
+        const points = createRegularHexPoints(
+          cell.centerX,
+          cell.centerY,
+          radius,
+          this.hexPointsScratch,
+        );
+        graphics.fillPoints(points as Phaser.Math.Vector2[], true);
+      }
+    });
   }
 
   destroy(): void {
     this.baseGraphics.destroy();
     this.vignetteGraphics.destroy();
-    this.layer1Clouds.forEach((slot) => slot.image.destroy());
-    this.farCorruptionClouds.forEach((slot) => slot.image.destroy());
-    this.webs.forEach((slot) => slot.image.destroy());
-    this.websCapillary.forEach((slot) => slot.image.destroy());
-    this.membranes.forEach((slot) => slot.image.destroy());
-    this.cracks.forEach((slot) => slot.image.destroy());
-    this.farDust.destroy();
+    this.veinMesh.destroy();
+    this.pulses.forEach((pulse) => pulse.image.destroy());
+    this.pulseGraphics.destroy();
     this.spores.destroy();
     this.bioFloat.destroy();
     this.livingAccent.destroy();
-    this.nearMotes.destroy();
-  }
-
-  private createImageSlot(
-    texture: string,
-    depth: number,
-    scrollFactor: number,
-    anchorKind: AnchorKind,
-    anchorIndex: number,
-    config: Omit<DriftSpriteSlot, 'image' | 'anchorKind' | 'anchorIndex'>,
-  ): DriftSpriteSlot {
-    const image = this.scene.add.image(0, 0, texture);
-    image.setOrigin(0.5);
-    image.setDepth(depth);
-    image.setScrollFactor(scrollFactor);
-    image.setAlpha(0);
-
-    return {
-      image,
-      anchorKind,
-      anchorIndex,
-      ...config,
-    };
+    this.hexMask.destroy();
   }
 
   private renderLayer1(
@@ -548,7 +295,6 @@ export class AbyssBackgroundRenderer {
       coverageWidth * 2,
       coverageHeight * 2,
     );
-    // Single subtle center wash (no stacked corner / offset ovals).
     this.baseGraphics.fillStyle(bg.abyssBlue, 0.045);
     this.baseGraphics.fillEllipse(
       worldCenter.x,
@@ -566,235 +312,15 @@ export class AbyssBackgroundRenderer {
       coverageWidth * 1.55,
       coverageHeight * 1.48,
     );
-
-    for (const slot of this.layer1Clouds) {
-      const pulse = 0.5 + 0.5 * Math.sin(this.elapsed * slot.speed + slot.phase);
-      slot.image.setPosition(
-        worldCenter.x + slot.offsetX + Math.sin(this.elapsed * slot.speed + slot.phase) * slot.driftX,
-        worldCenter.y + slot.offsetY + Math.cos(this.elapsed * slot.speed * 0.8 + slot.phase) * slot.driftY,
-      );
-      slot.image.setDisplaySize(
-        coverageWidth * slot.widthFactor * (1 + slot.scalePulse * pulse),
-        coverageHeight * slot.heightFactor * (1 + slot.scalePulse * pulse),
-      );
-      slot.image.setAlpha(lerp(slot.alphaMin, slot.alphaMax, pulse));
-      slot.image.setRotation(slot.rotationBase + (pulse - 0.5) * slot.rotationDrift);
-    }
-  }
-
-  /** Reddish capillary layer: finer grid, staggered vs main webs, drawn underneath. */
-  private updateCapillaryWebWorldFill(
-    anchor: { x: number; y: number },
-    halfCoverW: number,
-    halfCoverH: number,
-    sample: ReturnType<typeof createBackdropReactivitySample>,
-    snapshot: WorldRenderSnapshot,
-  ): void {
-    const { cols, rows } = tuning.background.tissueWebCapillaryGrid;
-    const floor = tuning.background.tissueWebCapillaryAlphaFloor;
-    const sizeFactor = tuning.background.tissueWebCapillaryBaseFactor;
-    const tileScale = tuning.background.tissueWebCapillaryTileScale;
-    const alphaMul = tuning.background.tissueWebCapillaryAlphaMul;
-    let idx = 0;
-    for (let row = 0; row < rows; row += 1) {
-      for (let col = 0; col < cols; col += 1) {
-        const slot = this.websCapillary[idx];
-        if (!slot) {
-          break;
-        }
-        idx += 1;
-        const u = cols > 1 ? (col + 0.5) / cols : 0.5;
-        const v = rows > 1 ? (row + 0.5) / rows : 0.5;
-        const gx = (u - 0.5) * 2 * halfCoverW * 0.96;
-        const gy = (v - 0.5) * 2 * halfCoverH * 0.96;
-        const wobbleX =
-          Math.sin(this.elapsed * 0.22 + idx * 0.41) * halfCoverW * 0.034;
-        const wobbleY =
-          Math.cos(this.elapsed * 0.19 + idx * 0.33) * halfCoverH * 0.034;
-        const basePoint = {
-          x: anchor.x + gx + wobbleX + slot.offsetX * 0.2,
-          y: anchor.y + gy + wobbleY + slot.offsetY * 0.2,
-        };
-        const driftWave = Math.sin(this.elapsed * slot.speed + slot.phase);
-        const driftWaveY = Math.cos(this.elapsed * slot.speed * 0.84 + slot.phase);
-        const pulse = 0.5 + 0.5 * Math.sin(this.elapsed * (0.65 + slot.speed) + slot.phase * 1.4);
-        const flowPulse =
-          0.72 + 0.28 * Math.sin(this.elapsed * 2.15 + idx * 0.51 + slot.phase);
-        const density = sampleBackdropDensity(basePoint, sample, snapshot.hexSize);
-        const alphaT = clamp(
-          floor +
-            (1 - floor) *
-              (density.bio * 0.45 + density.localPulse * 0.35 + 0.35),
-          0,
-          1,
-        );
-        const baseSize = Math.max(
-          snapshot.hexSize * 3.6,
-          Math.min(halfCoverW, halfCoverH) * sizeFactor,
-        );
-        const targetWidth =
-          baseSize * slot.widthFactor * tileScale * (1 + slot.scalePulse * pulse);
-        const targetHeight =
-          baseSize * slot.heightFactor * tileScale * (1 + slot.scalePulse * pulse);
-        const drawX = basePoint.x + driftWave * slot.driftX * 0.62;
-        const drawY = basePoint.y + driftWaveY * slot.driftY * 0.62;
-        const targetAlpha =
-          alphaMul *
-          flowPulse *
-          Math.max(
-            tuning.background.alpha.tissueWebMin * 0.95,
-            lerp(slot.alphaMin, slot.alphaMax, alphaT),
-          ) *
-          sampleBioWebHexOcclusionRect(
-            { x: drawX, y: drawY },
-            targetWidth * 0.5,
-            targetHeight * 0.5,
-            snapshot,
-          );
-
-        slot.image.setPosition(drawX, drawY);
-        slot.image.setDisplaySize(targetWidth, targetHeight);
-        slot.image.setAlpha(Phaser.Math.Clamp(targetAlpha, 0, 1));
-        slot.image.setRotation(
-          slot.rotationBase + driftWave * slot.rotationDrift + Math.sin(this.elapsed * 1.8 + idx) * 0.12,
-        );
-      }
-    }
-  }
-
-  /** World-locked tiled tissue webs across the full backdrop coverage (no parallax gaps). */
-  private updateTissueWebWorldFill(
-    anchor: { x: number; y: number },
-    halfCoverW: number,
-    halfCoverH: number,
-    sample: ReturnType<typeof createBackdropReactivitySample>,
-    snapshot: WorldRenderSnapshot,
-  ): void {
-    const { cols, rows } = tuning.background.tissueWebGrid;
-    const floor = tuning.background.tissueWebAlphaFloor;
-    const sizeFactor = tuning.background.tissueWebBaseSizeFactor;
-    const tileScale = tuning.background.tissueWebTileScale;
-    let idx = 0;
-    for (let row = 0; row < rows; row += 1) {
-      for (let col = 0; col < cols; col += 1) {
-        const slot = this.webs[idx];
-        if (!slot) {
-          break;
-        }
-        idx += 1;
-        const u = cols > 1 ? col / (cols - 1) : 0.5;
-        const v = rows > 1 ? row / (rows - 1) : 0.5;
-        const gx = (u - 0.5) * 2 * halfCoverW * 0.96;
-        const gy = (v - 0.5) * 2 * halfCoverH * 0.96;
-        const wobbleX =
-          Math.sin(this.elapsed * 0.12 + idx * 0.37) * halfCoverW * 0.02;
-        const wobbleY =
-          Math.cos(this.elapsed * 0.1 + idx * 0.29) * halfCoverH * 0.02;
-        const basePoint = {
-          x: anchor.x + gx + wobbleX + slot.offsetX * 0.22,
-          y: anchor.y + gy + wobbleY + slot.offsetY * 0.22,
-        };
-        const driftWave = Math.sin(this.elapsed * slot.speed + slot.phase);
-        const driftWaveY = Math.cos(this.elapsed * slot.speed * 0.84 + slot.phase);
-        const pulse = 0.5 + 0.5 * Math.sin(this.elapsed * (0.5 + slot.speed) + slot.phase * 1.4);
-        const density = sampleBackdropDensity(basePoint, sample, snapshot.hexSize);
-        const alphaT = clamp(
-          floor +
-            (1 - floor) *
-              (density.bio * 0.5 + density.localPulse * 0.35 + 0.28),
-          0,
-          1,
-        );
-        const baseSize = Math.max(
-          snapshot.hexSize * 4,
-          Math.min(halfCoverW, halfCoverH) * sizeFactor,
-        );
-        const targetWidth =
-          baseSize * slot.widthFactor * tileScale * (1 + slot.scalePulse * pulse);
-        const targetHeight =
-          baseSize * slot.heightFactor * tileScale * (1 + slot.scalePulse * pulse);
-        const drawX = basePoint.x + driftWave * slot.driftX * 0.55;
-        const drawY = basePoint.y + driftWaveY * slot.driftY * 0.55;
-        const targetAlpha =
-          Math.max(
-            tuning.background.alpha.tissueWebMin * 0.85,
-            lerp(slot.alphaMin, slot.alphaMax, alphaT),
-          ) *
-          sampleBioWebHexOcclusionRect(
-            { x: drawX, y: drawY },
-            targetWidth * 0.5,
-            targetHeight * 0.5,
-            snapshot,
-          );
-
-        slot.image.setPosition(drawX, drawY);
-        slot.image.setDisplaySize(targetWidth, targetHeight);
-        slot.image.setAlpha(targetAlpha);
-        slot.image.setRotation(slot.rotationBase + driftWave * slot.rotationDrift);
-      }
-    }
-  }
-
-  private updateSlots(
-    slots: DriftSpriteSlot[],
-    anchors: BackdropAnchor[],
-    fallbackAnchor: { x: number; y: number },
-    sample: ReturnType<typeof createBackdropReactivitySample>,
-    snapshot: WorldRenderSnapshot,
-    baseSize: number,
-  ): void {
-    for (const slot of slots) {
-      const anchor =
-        slot.anchorKind === 'center'
-          ? undefined
-          : anchors[slot.anchorIndex % Math.max(1, anchors.length)];
-      const anchorPoint = anchor
-        ? { x: anchor.x, y: anchor.y }
-        : fallbackAnchor;
-      const driftWave = Math.sin(this.elapsed * slot.speed + slot.phase);
-      const driftWaveY = Math.cos(this.elapsed * slot.speed * 0.84 + slot.phase);
-      const pulse = 0.5 + 0.5 * Math.sin(this.elapsed * (0.5 + slot.speed) + slot.phase * 1.4);
-      const basePoint = {
-        x: anchorPoint.x + slot.offsetX,
-        y: anchorPoint.y + slot.offsetY,
-      };
-      const density = sampleBackdropDensity(basePoint, sample, snapshot.hexSize);
-      const alphaT =
-        slot.anchorKind === 'corruption'
-          ? clamp(density.corruption + this.corruptionFlickerStrength)
-          : slot.anchorKind === 'living'
-            ? clamp(density.bio + density.localPulse * 0.8)
-            : pulse;
-      const targetAlpha = lerp(slot.alphaMin, slot.alphaMax, alphaT);
-      const targetWidth = baseSize * slot.widthFactor * (1 + slot.scalePulse * pulse);
-      const targetHeight = baseSize * slot.heightFactor * (1 + slot.scalePulse * pulse);
-
-      slot.image.setPosition(
-        basePoint.x + driftWave * slot.driftX,
-        basePoint.y + driftWaveY * slot.driftY,
-      );
-      slot.image.setDisplaySize(targetWidth, targetHeight);
-      slot.image.setAlpha(targetAlpha);
-      slot.image.setRotation(slot.rotationBase + driftWave * slot.rotationDrift);
-    }
   }
 
   private updateParticles(
     sample: ReturnType<typeof createBackdropReactivitySample>,
     snapshot: WorldRenderSnapshot,
     layerAnchor: { x: number; y: number },
-    livingCenter: { x: number; y: number },
     coverageWidth: number,
     coverageHeight: number,
   ): void {
-    this.farDust.setPosition(layerAnchor.x, layerAnchor.y);
-    this.farDustZone.setTo(
-      -coverageWidth * 0.58,
-      -coverageHeight * 0.58,
-      coverageWidth * 1.16,
-      coverageHeight * 1.16,
-    );
-
     const spanW = coverageWidth * 2 * 1.04;
     const spanH = coverageHeight * 2 * 1.04;
     this.spores.setPosition(layerAnchor.x, layerAnchor.y);
@@ -813,30 +339,112 @@ export class AbyssBackgroundRenderer {
       snapshot.hexSize * 2.4,
     );
     this.livingAccent.setAlpha(0.45 + accentPulse * 0.22);
-
-    this.nearMotes.setPosition(primaryLiving.x, primaryLiving.y);
-    this.nearMoteZone.setTo(
-      -snapshot.hexSize * 1.7,
-      -snapshot.hexSize * 1.6,
-      snapshot.hexSize * 3.4,
-      snapshot.hexSize * 3.2,
-    );
-    this.nearMotes.setAlpha(0.32 + accentPulse * 0.12);
   }
 
-  private updateCorruptionFlicker(deltaSeconds: number): void {
-    this.corruptionFlickerTimer -= deltaSeconds;
-    if (this.corruptionFlickerTimer <= 0) {
-      this.corruptionFlickerTimer = Phaser.Math.FloatBetween(
-        tuning.background.motion.rareFlickerMinSeconds,
-        tuning.background.motion.rareFlickerMaxSeconds,
-      );
-      this.corruptionFlickerStrength = 0.12;
+  private updatePulses(
+    deltaSeconds: number,
+    sample: ReturnType<typeof createBackdropReactivitySample>,
+    snapshot: WorldRenderSnapshot,
+  ): void {
+    this.pulseGraphics.clear();
+
+    const hasConquest = sample.livingAnchors.some((anchor) => anchor.source === 'conquest');
+    this.pulseSpawnTimer -= deltaSeconds;
+    if (this.pulseSpawnTimer <= 0) {
+      this.spawnPulse(sample, snapshot);
+      this.pulseSpawnTimer = hasConquest
+        ? Phaser.Math.FloatBetween(
+            tuning.background.pulse.activeIntervalMinSeconds,
+            tuning.background.pulse.activeIntervalMaxSeconds,
+          )
+        : Phaser.Math.FloatBetween(
+            tuning.background.pulse.idleIntervalMinSeconds,
+            tuning.background.pulse.idleIntervalMaxSeconds,
+          );
     }
 
-    this.corruptionFlickerStrength = Math.max(
-      0,
-      this.corruptionFlickerStrength - deltaSeconds * 0.42,
+    for (const pulse of this.pulses) {
+      if (!pulse.active) {
+        pulse.image.setVisible(false);
+        continue;
+      }
+
+      pulse.elapsed += deltaSeconds;
+      const t = Math.min(1, pulse.elapsed / Math.max(0.0001, pulse.duration));
+      if (t >= 1) {
+        pulse.active = false;
+        pulse.image.setVisible(false);
+        pulse.image.setAlpha(0);
+        continue;
+      }
+
+      this.renderPulse(pulse, t, snapshot);
+    }
+  }
+
+  private spawnPulse(
+    sample: ReturnType<typeof createBackdropReactivitySample>,
+    snapshot: WorldRenderSnapshot,
+  ): void {
+    const slot = this.pulses.find((pulse) => !pulse.active);
+    if (!slot) {
+      return;
+    }
+
+    const endpoints = pickPulseEndpoints(sample, {
+      fallbackSpan: snapshot.hexSize * tuning.background.pulse.spanFallbackFactor,
+    });
+    if (!endpoints) {
+      return;
+    }
+
+    slot.endpoints = endpoints;
+    slot.elapsed = 0;
+    slot.duration = Phaser.Math.FloatBetween(
+      tuning.background.pulse.durationMinSeconds,
+      tuning.background.pulse.durationMaxSeconds,
     );
+    const span = Math.hypot(
+      endpoints.toX - endpoints.fromX,
+      endpoints.toY - endpoints.fromY,
+    );
+    slot.bow = (Math.random() - 0.5) * 2 * Math.min(snapshot.hexSize * 0.9, span * 0.18);
+    slot.trailTint = this.pulseTints[
+      Math.floor(Math.random() * this.pulseTints.length)
+    ]!;
+    slot.active = true;
+    slot.image.setTint(slot.trailTint);
+    slot.image.setVisible(true);
+  }
+
+  private renderPulse(pulse: VeinPulse, t: number, snapshot: WorldRenderSnapshot): void {
+    const envelope = Math.sin(t * Math.PI);
+    const position = samplePulsePosition(pulse.endpoints, t, pulse.bow);
+    const headAlpha = tuning.background.pulse.headAlpha * envelope;
+
+    pulse.image.setPosition(position.x, position.y);
+    const headSize = snapshot.hexSize * tuning.background.pulse.headScale * (0.72 + 0.28 * envelope);
+    pulse.image.setDisplaySize(headSize, headSize);
+    pulse.image.setAlpha(Phaser.Math.Clamp(headAlpha, 0, 1));
+
+    const trailSegments = 6;
+    const trailMaxOffset = Math.min(0.32, t);
+    for (let i = 1; i <= trailSegments; i += 1) {
+      const tailT = Math.max(0, t - (trailMaxOffset * i) / trailSegments);
+      const tailPoint = samplePulsePosition(pulse.endpoints, tailT, pulse.bow);
+      const fade = (1 - i / trailSegments) * envelope;
+      const width = tuning.background.pulse.width * (0.45 + 0.55 * fade);
+      this.pulseGraphics.lineStyle(
+        width,
+        pulse.trailTint,
+        Phaser.Math.Clamp(tuning.background.pulse.trailAlpha * fade, 0, 1),
+      );
+      this.pulseGraphics.lineBetween(
+        tailPoint.x,
+        tailPoint.y,
+        position.x,
+        position.y,
+      );
+    }
   }
 }

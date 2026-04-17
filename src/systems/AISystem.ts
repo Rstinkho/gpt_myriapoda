@@ -23,7 +23,7 @@ import {
   stepShellbackState,
 } from '@/entities/enemies/shellback/ShellbackAI';
 import type { DashStateSnapshot } from '@/game/types';
-import { vec2FromPixels, vec2ToPixels } from '@/physics/PhysicsUtils';
+import { pixelsToMeters, vec2ToPixels } from '@/physics/PhysicsUtils';
 import type { PlayerDamageSystem } from '@/systems/PlayerDamageSystem';
 
 type PlayerDamageResolver = Pick<
@@ -33,6 +33,14 @@ type PlayerDamageResolver = Pick<
 
 export class AISystem {
   private elapsed = 0;
+
+  // Scratch Vec2s reused across the whole update to avoid ~5 allocations per
+  // enemy per fixed step (60 Hz). planck's body setters all copy the input
+  // values internally (they use `setVec2`/`copyVec2`), so reusing a single
+  // instance per role is safe.
+  private readonly forceScratch = planck.Vec2(0, 0);
+  private readonly velocityScratch = planck.Vec2(0, 0);
+  private readonly positionScratch = planck.Vec2(0, 0);
 
   constructor(private readonly playerDamageSystem?: PlayerDamageResolver) {}
 
@@ -74,14 +82,16 @@ export class AISystem {
             this.elapsed,
             getJellyfishPhaseSeed(enemy.id),
           );
-          enemy.body.applyForceToCenter(planck.Vec2(steering.forceX, steering.forceY), true);
+          this.forceScratch.setNum(steering.forceX, steering.forceY);
+          enemy.body.applyForceToCenter(this.forceScratch, true);
 
           const velocity = enemy.body.getLinearVelocity();
           const clampedVelocity = clampEnemyVelocity(
             { x: velocity.x, y: velocity.y },
             tuning.jellyfishMaxSpeed,
           );
-          enemy.body.setLinearVelocity(planck.Vec2(clampedVelocity.x, clampedVelocity.y));
+          this.velocityScratch.setNum(clampedVelocity.x, clampedVelocity.y);
+          enemy.body.setLinearVelocity(this.velocityScratch);
           break;
         }
 
@@ -179,11 +189,13 @@ export class AISystem {
       (enemy.state === 'latched' || enemy.state === 'drainedOut')
     ) {
       const attachedPoint = myriapoda.body.getStomachLatchPoint(enemy.attachedLatchSlotIndex);
-      enemy.body.setTransform(
-        vec2FromPixels(attachedPoint.x, attachedPoint.y),
-        attachedPoint.angle,
+      this.positionScratch.setNum(
+        pixelsToMeters(attachedPoint.x),
+        pixelsToMeters(attachedPoint.y),
       );
-      enemy.body.setLinearVelocity(planck.Vec2(0, 0));
+      enemy.body.setTransform(this.positionScratch, attachedPoint.angle);
+      this.velocityScratch.setZero();
+      enemy.body.setLinearVelocity(this.velocityScratch);
       enemy.body.setAngularVelocity(0);
       return;
     }
@@ -201,12 +213,11 @@ export class AISystem {
         distance > 0.001
           ? dy / distance
           : dashState.directionY || Math.sin(enemy.body.getAngle());
-      enemy.body.setLinearVelocity(
-        planck.Vec2(
-          detachDirectionX * tuning.leechDetachKnockbackSpeed,
-          detachDirectionY * tuning.leechDetachKnockbackSpeed,
-        ),
+      this.velocityScratch.setNum(
+        detachDirectionX * tuning.leechDetachKnockbackSpeed,
+        detachDirectionY * tuning.leechDetachKnockbackSpeed,
       );
+      enemy.body.setLinearVelocity(this.velocityScratch);
       return;
     }
 
@@ -216,26 +227,30 @@ export class AISystem {
         { x: velocity.x, y: velocity.y },
         leechMaxSpeed,
       );
-      enemy.body.setLinearVelocity(planck.Vec2(clampedVelocity.x, clampedVelocity.y));
+      this.velocityScratch.setNum(clampedVelocity.x, clampedVelocity.y);
+      enemy.body.setLinearVelocity(this.velocityScratch);
       return;
     }
 
-    const targetMeters = vec2FromPixels(targetPixels.x, targetPixels.y);
+    const targetMetersX = pixelsToMeters(targetPixels.x);
+    const targetMetersY = pixelsToMeters(targetPixels.y);
     const steering = createLeechSteering(
       { x: currentPosition.x, y: currentPosition.y },
-      { x: targetMeters.x, y: targetMeters.y },
+      { x: targetMetersX, y: targetMetersY },
       leechSeekForce,
       this.elapsed,
       getLeechPhaseSeed(enemy.id),
     );
-    enemy.body.applyForceToCenter(planck.Vec2(steering.forceX, steering.forceY), true);
+    this.forceScratch.setNum(steering.forceX, steering.forceY);
+    enemy.body.applyForceToCenter(this.forceScratch, true);
 
     const velocity = enemy.body.getLinearVelocity();
     const clampedVelocity = clampEnemyVelocity(
       { x: velocity.x, y: velocity.y },
       leechMaxSpeed,
     );
-    enemy.body.setLinearVelocity(planck.Vec2(clampedVelocity.x, clampedVelocity.y));
+    this.velocityScratch.setNum(clampedVelocity.x, clampedVelocity.y);
+    enemy.body.setLinearVelocity(this.velocityScratch);
     if (Math.hypot(clampedVelocity.x, clampedVelocity.y) > 0.01) {
       enemy.body.setTransform(
         enemy.body.getPosition(),
@@ -269,19 +284,21 @@ export class AISystem {
           enemy.phaseSeed,
           tuning.shellbackGuardOrbitRadiusPx,
         );
-    const desiredMeters = vec2FromPixels(desiredPoint.x, desiredPoint.y);
+    const desiredMetersX = pixelsToMeters(desiredPoint.x);
+    const desiredMetersY = pixelsToMeters(desiredPoint.y);
     const steeringStrength =
       enemy.shellState === 'shelled'
         ? tuning.shellbackMoveForce * 0.55
         : tuning.shellbackMoveForce;
     const steering = createShellbackSteering(
       { x: positionMeters.x, y: positionMeters.y },
-      { x: desiredMeters.x, y: desiredMeters.y },
+      { x: desiredMetersX, y: desiredMetersY },
       steeringStrength,
       this.elapsed,
       enemy.phaseSeed,
     );
-    enemy.body.applyForceToCenter(planck.Vec2(steering.forceX, steering.forceY), true);
+    this.forceScratch.setNum(steering.forceX, steering.forceY);
+    enemy.body.applyForceToCenter(this.forceScratch, true);
 
     const velocity = enemy.body.getLinearVelocity();
     const clampedVelocity = clampEnemyVelocity(
@@ -290,7 +307,8 @@ export class AISystem {
         ? tuning.shellbackMaxSpeed * 0.55
         : tuning.shellbackMaxSpeed,
     );
-    enemy.body.setLinearVelocity(planck.Vec2(clampedVelocity.x, clampedVelocity.y));
+    this.velocityScratch.setNum(clampedVelocity.x, clampedVelocity.y);
+    enemy.body.setLinearVelocity(this.velocityScratch);
 
     const facingAngle = hasAggro
       ? Math.atan2(

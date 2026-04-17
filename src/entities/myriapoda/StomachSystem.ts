@@ -212,6 +212,15 @@ export class StomachSystem {
       () => this.consumeOldestStoredParticle(),
     );
     this.parasites.splice(0, this.parasites.length, ...nextParasites);
+
+    // When the stomach has no dynamic bodies (particles), the only things the
+    // Planck world would simulate are a kinematic mixer and static chamber
+    // edges. Stepping it costs real ms per frame and is completely wasted here;
+    // skip the whole block. Parasites are non-physics and already stepped above.
+    if (this.particles.length === 0) {
+      return;
+    }
+
     const angle = Math.sin(this.mixTime * 0.9) * 0.55;
     this.mixerBody.setTransform(planck.Vec2(0, 0), angle);
     this.mixerBody.setAngularVelocity(Math.cos(this.mixTime * 1.1) * tuning.stomachMixerAngularSpeed);

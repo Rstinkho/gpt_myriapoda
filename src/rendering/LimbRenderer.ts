@@ -21,6 +21,10 @@ export class LimbRenderer {
   render(myriapoda: Myriapoda): void {
     this.elapsed += tuning.fixedStepSeconds;
 
+    // Hide the strike layer by default so its bloom filter chain is skipped on idle frames.
+    // Gets flipped to visible only if an actual strike is drawn below.
+    let anyStrike = false;
+
     for (const limb of myriapoda.limbs.limbs) {
       if (!limb.body) {
         continue;
@@ -65,6 +69,7 @@ export class LimbRenderer {
       this.renderBaseLimb(root, points, tip, attackWeight);
 
       if (attackWeight > 0.01) {
+        anyStrike = true;
         this.renderElectricStrike(
           points,
           tip,
@@ -79,6 +84,8 @@ export class LimbRenderer {
         );
       }
     }
+
+    this.strikeGraphics.setVisible(anyStrike);
   }
 
   private renderBaseLimb(

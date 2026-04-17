@@ -1,4 +1,4 @@
-import type { EvolutionSection, PickupResourceId } from '@/game/types';
+import type { EvolutionSection, PickupResourceId, ResourceCost } from '@/game/types';
 import {
   evolutionWorldActionDefs,
   evolutionWorldBuildingDefs,
@@ -27,6 +27,8 @@ export interface EvolutionRectGroup {
 export interface EvolutionBuildingSlotLayout {
   id: string;
   name: string;
+  description: string;
+  cost: ResourceCost;
   costLabel: string;
   requirement: string;
   rect: RectLike;
@@ -35,7 +37,11 @@ export interface EvolutionBuildingSlotLayout {
 export interface EvolutionEnhancementNodeLayout {
   id: string;
   label: string;
+  /** Legacy plain-text cost label ("8 BIOMASS"); kept for tests/back-compat. */
   sublabel: string;
+  /** Structured cost so renderers can draw icon + amount widgets. */
+  cost: ResourceCost;
+  description: string;
   column: number;
   row: number;
   locked: boolean;
@@ -50,7 +56,9 @@ export interface EvolutionEnhancementLinkLayout {
 export interface EvolutionActionCardLayout {
   id: EvolutionWorldActionId;
   title: string;
+  description: string;
   icon: EvolutionWorldActionIcon;
+  cost?: ResourceCost;
   costLabel?: string;
   locked: boolean;
   rect: RectLike;
@@ -216,6 +224,8 @@ export function getEvolutionWorldBuildingSlotLayout(
     return {
       id: def.id,
       name: def.name,
+      description: def.description,
+      cost: def.cost,
       costLabel: formatResourceCost(def.cost),
       requirement: def.requirement,
       rect: {
@@ -245,14 +255,20 @@ export function getEvolutionEnhancementTreeLayout(
   const rowHeights = [0.22, 0.5, 0.78];
 
   const nodeDefs: EvolutionUpgradeNodeDefinition[] = getEvolutionUpgradeNodes(family);
-  const nodes = nodeDefs.map((node) => {
+  const nodes: EvolutionEnhancementNodeLayout[] = nodeDefs.map((node) => {
     const columnCenterX = inner.x + columnWidth * (node.column + 0.5);
     const yFactor =
       node.column === 0 ? 0.5 : rowHeights[Math.min(maxRows - 1, Math.max(0, node.row))];
     const centerY = inner.y + inner.height * yFactor;
     return {
-      ...node,
+      id: node.id,
+      label: node.label,
+      description: node.description,
+      cost: node.cost,
       sublabel: formatResourceCost(node.cost),
+      column: node.column,
+      row: node.row,
+      locked: node.locked,
       rect: {
         x: columnCenterX - nodeWidth * 0.5,
         y: centerY - nodeHeight * 0.5,
@@ -277,13 +293,15 @@ export function getEvolutionWorldActionCardLayout(
   const quad = Math.min(slotW, inner.height);
   const rowW = n * quad + totalGap;
   const startX = inner.x + (inner.width - rowW) * 0.5;
-  /** Top-aligned under stats text; remaining height stays empty below. */
-  const startY = inner.y;
+  /** Bottom-aligned in the action section so buttons sit along the lower edge. */
+  const startY = inner.y + Math.max(0, inner.height - quad);
 
   return evolutionWorldActionDefs.map((card, index) => ({
     id: card.id,
     title: card.title,
+    description: card.description,
     icon: card.icon,
+    cost: card.cost,
     costLabel: card.cost ? formatResourceCost(card.cost) : undefined,
     locked: card.locked,
     rect: {

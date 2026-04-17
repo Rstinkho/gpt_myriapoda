@@ -281,6 +281,124 @@ export function sampleBioWebHexOcclusionRect(
   return minOcc;
 }
 
+export interface PulseEndpoints {
+  fromX: number;
+  fromY: number;
+  toX: number;
+  toY: number;
+  sourceWeight: number;
+}
+
+function anchorPriorityScore(anchor: BackdropAnchor): number {
+  switch (anchor.source) {
+    case 'conquest':
+      return 3 + anchor.weight;
+    case 'owned':
+      return 2 + anchor.weight;
+    case 'living':
+      return 1 + anchor.weight;
+    case 'fallback':
+      return 0.25 + anchor.weight;
+    case 'dead':
+      return anchor.weight * 0.5;
+    default:
+      return anchor.weight;
+  }
+}
+
+/**
+ * Picks a start anchor (conquest > owned > living > fallback) and a distinct end anchor for a
+ * bio-electric pulse travelling between living anchors. When only one anchor is available the
+ * pulse arcs toward a short offset so it still reads as a traveling spark.
+ */
+export function pickPulseEndpoints(
+  sample: BackdropReactivitySample,
+  options: {
+    randomUnit?: () => number;
+    fallbackSpan?: number;
+  } = {},
+): PulseEndpoints | null {
+  const random = options.randomUnit ?? Math.random;
+  const fallbackSpan = Math.max(0, options.fallbackSpan ?? 0);
+  const anchors = sample.livingAnchors;
+  if (anchors.length === 0) {
+    return null;
+  }
+
+  const sortedBySource = [...anchors].sort(
+    (left, right) => anchorPriorityScore(right) - anchorPriorityScore(left),
+  );
+  const start = sortedBySource[0]!;
+
+  let end: BackdropAnchor | null = null;
+  if (sortedBySource.length >= 2) {
+    const candidates = sortedBySource.slice(1);
+    let bestScore = -Infinity;
+    for (const candidate of candidates) {
+      const separation = distanceBetween(start, candidate);
+      const score = separation * 0.001 + anchorPriorityScore(candidate);
+      if (score > bestScore) {
+        bestScore = score;
+        end = candidate;
+      }
+    }
+  }
+
+  if (!end) {
+    if (fallbackSpan <= 0) {
+      return null;
+    }
+    const angle = random() * Math.PI * 2;
+    return {
+      fromX: start.x,
+      fromY: start.y,
+      toX: start.x + Math.cos(angle) * fallbackSpan,
+      toY: start.y + Math.sin(angle) * fallbackSpan,
+      sourceWeight: start.weight,
+    };
+  }
+
+  return {
+    fromX: start.x,
+    fromY: start.y,
+    toX: end.x,
+    toY: end.y,
+    sourceWeight: start.weight,
+  };
+}
+
+/**
+ * Returns a point on the pulse path at progress `t` (0..1). A small sinusoidal bow is applied
+ * perpendicular to the travel axis so pulses read as curving along vein paths rather than
+ * straight-line lasers. Endpoints are preserved exactly at t=0 and t=1.
+ */
+export function samplePulsePosition(
+  endpoints: PulseEndpoints,
+  t: number,
+  bowAmplitudePx = 0,
+): { x: number; y: number } {
+  const clamped = clamp(t, 0, 1);
+  const baseX = endpoints.fromX + (endpoints.toX - endpoints.fromX) * clamped;
+  const baseY = endpoints.fromY + (endpoints.toY - endpoints.fromY) * clamped;
+  if (bowAmplitudePx === 0) {
+    return { x: baseX, y: baseY };
+  }
+
+  const dx = endpoints.toX - endpoints.fromX;
+  const dy = endpoints.toY - endpoints.fromY;
+  const length = Math.hypot(dx, dy);
+  if (length < 0.0001) {
+    return { x: baseX, y: baseY };
+  }
+  const nx = -dy / length;
+  const ny = dx / length;
+  const bow = Math.sin(clamped * Math.PI) * bowAmplitudePx;
+  return {
+    x: baseX + nx * bow,
+    y: baseY + ny * bow,
+  };
+}
+
 export function sampleBackdropDensity(
   point: { x: number; y: number },
   sample: BackdropReactivitySample,

@@ -186,6 +186,138 @@ function drawMoteFragmentTexture(
   graphics.strokePoints(points, true, true);
 }
 
+function drawNeuralVeinTexture(
+  graphics: Phaser.GameObjects.Graphics,
+  size: number,
+  seed: number,
+): void {
+  const random = createSeededRandom(seed);
+  const center = size * 0.5;
+
+  for (let bundle = 0; bundle < 8; bundle += 1) {
+    const startAngle = random() * Math.PI * 2;
+    const startRadius = size * (0.04 + random() * 0.12);
+    let x = center + Math.cos(startAngle) * startRadius;
+    let y = center + Math.sin(startAngle) * startRadius;
+    let angle = startAngle + (random() - 0.5) * 0.6;
+    const segments = 10 + Math.floor(random() * 8);
+
+    for (let segment = 0; segment < segments; segment += 1) {
+      const length = size * (0.055 + random() * 0.055);
+      const nextAngle = angle + (random() - 0.5) * 0.32;
+      const nextX = x + Math.cos(nextAngle) * length;
+      const nextY = y + Math.sin(nextAngle) * length;
+
+      graphics.lineStyle(7, 0xffffff, 0.018);
+      graphics.lineBetween(x, y, nextX, nextY);
+      graphics.lineStyle(3.2, 0xffffff, 0.05);
+      graphics.lineBetween(x, y, nextX, nextY);
+      graphics.lineStyle(1.1, 0xffffff, 0.14);
+      graphics.lineBetween(x, y, nextX, nextY);
+
+      if (random() > 0.7) {
+        const branchAngle = nextAngle + (random() > 0.5 ? 1 : -1) * (0.5 + random() * 0.45);
+        const branchLength = length * (0.55 + random() * 0.6);
+        const branchX = nextX + Math.cos(branchAngle) * branchLength;
+        const branchY = nextY + Math.sin(branchAngle) * branchLength;
+        graphics.lineStyle(4.2, 0xffffff, 0.014);
+        graphics.lineBetween(nextX, nextY, branchX, branchY);
+        graphics.lineStyle(1.6, 0xffffff, 0.04);
+        graphics.lineBetween(nextX, nextY, branchX, branchY);
+        graphics.lineStyle(0.9, 0xffffff, 0.11);
+        graphics.lineBetween(nextX, nextY, branchX, branchY);
+
+        if (random() > 0.55) {
+          graphics.fillStyle(0xffffff, 0.1);
+          graphics.fillCircle(branchX, branchY, 1 + random() * 1.6);
+        }
+      }
+
+      if (random() > 0.74) {
+        graphics.fillStyle(0xffffff, 0.09);
+        graphics.fillCircle(nextX, nextY, 1.3 + random() * 1.8);
+      }
+
+      x = nextX;
+      y = nextY;
+      angle = nextAngle;
+    }
+  }
+}
+
+function drawCapillaryVeinTexture(
+  graphics: Phaser.GameObjects.Graphics,
+  size: number,
+  seed: number,
+): void {
+  const random = createSeededRandom(seed);
+  const center = size * 0.5;
+
+  for (let bundle = 0; bundle < 12; bundle += 1) {
+    const startAngle = random() * Math.PI * 2;
+    const startRadius = size * (0.02 + random() * 0.14);
+    let x = center + Math.cos(startAngle) * startRadius;
+    let y = center + Math.sin(startAngle) * startRadius;
+    let angle = startAngle + (random() - 0.5) * 0.5;
+    const segments = 8 + Math.floor(random() * 8);
+
+    for (let segment = 0; segment < segments; segment += 1) {
+      const length = size * (0.04 + random() * 0.07);
+      const nextAngle = angle + (random() - 0.5) * 0.55;
+      const nextX = x + Math.cos(nextAngle) * length;
+      const nextY = y + Math.sin(nextAngle) * length;
+
+      graphics.lineStyle(8.5, 0xffffff, 0.035);
+      graphics.lineBetween(x, y, nextX, nextY);
+      graphics.lineStyle(4.2, 0xffffff, 0.12);
+      graphics.lineBetween(x, y, nextX, nextY);
+      graphics.lineStyle(1.6, 0xffffff, 0.42);
+      graphics.lineBetween(x, y, nextX, nextY);
+
+      if (random() > 0.45) {
+        const forkAngle = nextAngle + (random() > 0.5 ? 1 : -1) * (0.5 + random() * 0.5);
+        const forkLength = length * (0.55 + random() * 0.55);
+        const forkX = nextX + Math.cos(forkAngle) * forkLength;
+        const forkY = nextY + Math.sin(forkAngle) * forkLength;
+        graphics.lineStyle(5.5, 0xffffff, 0.026);
+        graphics.lineBetween(nextX, nextY, forkX, forkY);
+        graphics.lineStyle(2.4, 0xffffff, 0.1);
+        graphics.lineBetween(nextX, nextY, forkX, forkY);
+        graphics.lineStyle(1, 0xffffff, 0.32);
+        graphics.lineBetween(nextX, nextY, forkX, forkY);
+
+        if (random() > 0.55) {
+          graphics.fillStyle(0xffffff, 0.38);
+          graphics.fillCircle(forkX, forkY, 1 + random() * 1.6);
+        }
+      }
+
+      if (random() > 0.55) {
+        graphics.fillStyle(0xffffff, 0.3);
+        graphics.fillCircle(nextX, nextY, 1.2 + random() * 1.8);
+      }
+
+      x = nextX;
+      y = nextY;
+      angle = nextAngle;
+    }
+  }
+}
+
+function drawPulseHeadTexture(graphics: Phaser.GameObjects.Graphics, size: number): void {
+  const center = size * 0.5;
+  graphics.fillStyle(0xffffff, 0.04);
+  graphics.fillCircle(center, center, size * 0.48);
+  graphics.fillStyle(0xffffff, 0.1);
+  graphics.fillCircle(center, center, size * 0.32);
+  graphics.fillStyle(0xffffff, 0.28);
+  graphics.fillCircle(center, center, size * 0.2);
+  graphics.fillStyle(0xffffff, 0.7);
+  graphics.fillCircle(center, center, size * 0.1);
+  graphics.fillStyle(0xffffff, 0.98);
+  graphics.fillCircle(center, center, size * 0.055);
+}
+
 function drawCorruptionCrackTexture(
   graphics: Phaser.GameObjects.Graphics,
   size: number,
@@ -234,6 +366,15 @@ export function registerBackgroundTextures(scene: Phaser.Scene): void {
   });
   ensureTexture(scene, textureKeys.background.bioWeb, 640, 640, (graphics) => {
     drawBioWebTexture(graphics, 640, 0x51a6be);
+  });
+  ensureTexture(scene, textureKeys.background.neuralVein, 640, 640, (graphics) => {
+    drawNeuralVeinTexture(graphics, 640, 0x2eb0cf);
+  });
+  ensureTexture(scene, textureKeys.background.capillaryVein, 640, 640, (graphics) => {
+    drawCapillaryVeinTexture(graphics, 640, 0xb12a3f);
+  });
+  ensureTexture(scene, textureKeys.background.pulseHead, 96, 96, (graphics) => {
+    drawPulseHeadTexture(graphics, 96);
   });
   ensureTexture(scene, textureKeys.background.membraneStain, 512, 512, (graphics) => {
     drawMembraneStainTexture(graphics, 512, 0x788ae1);

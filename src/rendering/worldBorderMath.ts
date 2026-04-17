@@ -20,14 +20,32 @@ export const HEX_NEIGHBOR_DIRECTIONS: HexCoord[] = [
   { q: 1, r: -1 },
 ];
 
-export function createRegularHexPoints(centerX: number, centerY: number, radius: number): BorderPoint[] {
-  const points: BorderPoint[] = [];
+/**
+ * Computes the 6 vertices of a regular hex, pointy-top orientation (first vertex at -90°).
+ *
+ * Accepts an optional `out` array to mutate in place — crucial for per-frame hot paths
+ * (every tile fill/stroke in the world renderer calls this) where fresh allocations
+ * create significant GC pressure. When `out` is provided, the same 6 objects inside it
+ * are updated and returned; when omitted, a fresh 6-element array is allocated.
+ */
+export function createRegularHexPoints(
+  centerX: number,
+  centerY: number,
+  radius: number,
+  out?: BorderPoint[],
+): BorderPoint[] {
+  const points = out ?? new Array<BorderPoint>(6);
   for (let index = 0; index < 6; index += 1) {
     const angle = (Math.PI / 180) * (60 * index - 30);
-    points.push({
-      x: centerX + Math.cos(angle) * radius,
-      y: centerY + Math.sin(angle) * radius,
-    });
+    const x = centerX + Math.cos(angle) * radius;
+    const y = centerY + Math.sin(angle) * radius;
+    const existing = points[index];
+    if (existing) {
+      existing.x = x;
+      existing.y = y;
+    } else {
+      points[index] = { x, y };
+    }
   }
   return points;
 }
@@ -215,6 +233,23 @@ export function createProgressBorderSlice(
   }
 
   const orderedEdges = orderBorderEdgesClockwise(edges);
+  return createProgressBorderSliceFromOrdered(orderedEdges, startProgress, endProgress);
+}
+
+/**
+ * Same as `createProgressBorderSlice` but takes pre-ordered edges. Intended for hot render
+ * paths where the same ordered chain is reused for multiple slices (rail / trail / front)
+ * in the same frame — skips a redundant `orderBorderEdgesClockwise` (sort + O(N) chain walk).
+ */
+export function createProgressBorderSliceFromOrdered(
+  orderedEdges: BorderEdge[],
+  startProgress: number,
+  endProgress: number,
+): BorderEdge[] {
+  if (orderedEdges.length === 0) {
+    return [];
+  }
+
   const totalLength = getBorderLength(orderedEdges);
   if (totalLength <= 0) {
     return [];
@@ -262,4 +297,11 @@ export function createProgressBorderSlice(
 
 export function createProgressBorderEdges(edges: BorderEdge[], progress: number): BorderEdge[] {
   return createProgressBorderSlice(edges, 0, progress);
+}
+
+export function createProgressBorderEdgesFromOrdered(
+  orderedEdges: BorderEdge[],
+  progress: number,
+): BorderEdge[] {
+  return createProgressBorderSliceFromOrdered(orderedEdges, 0, progress);
 }

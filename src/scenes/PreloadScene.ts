@@ -1,6 +1,7 @@
 import * as Phaser from 'phaser';
 import { registerBackgroundTextures } from '@/background/backgroundTextures';
 import { registerEvolutionBuildingTextures } from '@/evolution/evolutionBuildingTextures';
+import { registerResourceIconTextures } from '@/evolution/resourceIconTextures';
 import { textureKeys } from '@/game/assets';
 import { pickupDefinitions } from '@/entities/pickups';
 
@@ -16,6 +17,7 @@ export class PreloadScene extends Phaser.Scene {
       this.createPickupTexture(definition.textureKey, 48, definition.buildTexture);
     }
     registerEvolutionBuildingTextures(this);
+    registerResourceIconTextures(this);
 
     this.scene.start('GameScene');
   }

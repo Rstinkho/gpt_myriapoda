@@ -1,10 +1,17 @@
 import * as Phaser from 'phaser';
+import {
+  deriveJitterSeed,
+  drawJitteredRoundedRect,
+  drawJitteredRoundedRectFill,
+} from '@/evolution/evolutionBorderStyle';
 import { tuning } from '@/game/tuning';
 import type { HudSnapshot } from '@/game/types';
 import { getModeDotStates } from '@/ui/uiState';
 
-const evolutionPillWidth = 42;
+const evolutionPillWidth = 132;
 const evolutionPillGap = 14;
+const evolutionLabelInnerPadX = 14;
+const evolutionLabelBoldToRestGap = 1;
 
 /** Top-left HUD layout (title + pill row). */
 const HEADER_MARGIN_X = 28;
@@ -32,7 +39,8 @@ export class TopHeader {
   private readonly titleLineOne: Phaser.GameObjects.Text;
   private readonly titleLineTwo: Phaser.GameObjects.Text;
   private readonly tabLabel: Phaser.GameObjects.Text;
-  private readonly evolutionLabel: Phaser.GameObjects.Text;
+  private readonly evolutionLabelBold: Phaser.GameObjects.Text;
+  private readonly evolutionLabelRest: Phaser.GameObjects.Text;
   private readonly conquestLabel: Phaser.GameObjects.Text;
   private readonly tabHitArea: Phaser.GameObjects.Zone;
   private readonly evolutionHitArea: Phaser.GameObjects.Zone;
@@ -49,7 +57,7 @@ export class TopHeader {
     this.graphics = scene.add.graphics();
     this.graphics.setScrollFactor(0).setDepth(1000);
 
-    this.titleLineOne = scene.add.text(0, 0, 'Myriapoda: PART I', {
+    this.titleLineOne = scene.add.text(0, 0, 'Myriapoda: Chapter I', {
       fontFamily: 'Georgia',
       fontSize: '30px',
       color: '#edf8ef',
@@ -77,14 +85,22 @@ export class TopHeader {
     });
     this.tabLabel.setOrigin(0, 0.5).setScrollFactor(0).setDepth(1002);
 
-    this.evolutionLabel = scene.add.text(0, 0, 'E', {
+    this.evolutionLabelBold = scene.add.text(0, 0, '[E]', {
       fontFamily: 'Trebuchet MS',
       fontSize: '17px',
       fontStyle: 'bold',
       color: accentColor,
-      letterSpacing: 2,
+      letterSpacing: 1.2,
     });
-    this.evolutionLabel.setOrigin(0.5).setScrollFactor(0).setDepth(1002);
+    this.evolutionLabelBold.setOrigin(0, 0.5).setScrollFactor(0).setDepth(1002);
+
+    this.evolutionLabelRest = scene.add.text(0, 0, 'volution', {
+      fontFamily: 'Trebuchet MS',
+      fontSize: '17px',
+      color: accentColor,
+      letterSpacing: 1.2,
+    });
+    this.evolutionLabelRest.setOrigin(0, 0.5).setScrollFactor(0).setDepth(1002);
 
     this.conquestLabel = scene.add.text(0, 0, '', {
       fontFamily: 'Trebuchet MS',
@@ -120,10 +136,21 @@ export class TopHeader {
     this.titleLineTwo.setPosition(HEADER_MARGIN_X + 2, TITLE_LINE_2_Y);
     const rowY = tabY + pillH * 0.5;
     this.tabLabel.setPosition(tabX + TAB_ROW_PAD_X, rowY);
-    this.evolutionLabel.setPosition(
-      evolutionX + evolutionPillWidth * 0.5,
-      evolutionY + pillH * 0.5,
+
+    // Center `[E]volution` as a single visual unit inside the pill. Two Text
+    // objects are required to give `[E]` bold weight and `volution` normal
+    // weight within a single Phaser Text (bold is a per-object style).
+    const labelY = evolutionY + pillH * 0.5;
+    const totalLabelWidth =
+      this.evolutionLabelBold.width + evolutionLabelBoldToRestGap + this.evolutionLabelRest.width;
+    const labelStartX =
+      evolutionX + Math.max(evolutionLabelInnerPadX, (evolutionPillWidth - totalLabelWidth) * 0.5);
+    this.evolutionLabelBold.setPosition(labelStartX, labelY);
+    this.evolutionLabelRest.setPosition(
+      labelStartX + this.evolutionLabelBold.width + evolutionLabelBoldToRestGap,
+      labelY,
     );
+
     this.tabHitArea.setPosition(tabX, tabY);
     this.tabHitArea.setSize(tuning.uiHeaderPillWidth, pillH);
     this.evolutionHitArea.setPosition(evolutionX, evolutionY);
@@ -162,6 +189,7 @@ export class TopHeader {
       pillRadius,
       this.tabHovered ? 0.2 : 0.09,
       this.tabHovered ? 0.74 : 0.38,
+      'hud-tab-pill',
     );
     this.drawPill(
       evolutionX,
@@ -171,15 +199,21 @@ export class TopHeader {
       evolutionRadius,
       this.evolutionHovered ? 0.22 : 0.12,
       this.evolutionHovered ? 0.78 : 0.46,
+      'hud-evolution-pill',
     );
 
     if (this.evolutionHovered) {
-      this.graphics.fillStyle(tuning.uiPanelAccentColor, 0.12);
-      this.graphics.fillCircle(
-        evolutionX + evolutionPillWidth * 0.5,
-        pillY + pillHeight * 0.5,
-        18,
-      );
+      drawJitteredRoundedRectFill(this.graphics, {
+        x: evolutionX + 2,
+        y: pillY + 2,
+        width: evolutionPillWidth - 4,
+        height: pillHeight - 4,
+        radius: Math.max(6, evolutionRadius - 2),
+        seed: deriveJitterSeed('hud-evolution-pill-hover'),
+        jitter: 0.85,
+        color: tuning.uiPanelAccentColor,
+        alpha: 0.1,
+      });
     }
 
     this.drawModeDot(leftDotX, dotY, leftDotLit);
@@ -190,9 +224,18 @@ export class TopHeader {
       const bannerY = CONQUEST_BANNER_Y;
       const bannerWidth = 268;
       const bannerHeight = 54;
-      this.drawPill(bannerX, bannerY, bannerWidth, bannerHeight, 18, 0.15, 0.54);
-      this.graphics.fillStyle(0x4ab8ff, 0.08);
-      this.graphics.fillRoundedRect(bannerX + 6, bannerY + 6, bannerWidth - 12, bannerHeight - 12, 14);
+      this.drawPill(bannerX, bannerY, bannerWidth, bannerHeight, 18, 0.15, 0.54, 'hud-conquest-banner');
+      drawJitteredRoundedRectFill(this.graphics, {
+        x: bannerX + 6,
+        y: bannerY + 6,
+        width: bannerWidth - 12,
+        height: bannerHeight - 12,
+        radius: 14,
+        seed: deriveJitterSeed('hud-conquest-banner-inner'),
+        jitter: 0.9,
+        color: 0x4ab8ff,
+        alpha: 0.08,
+      });
       this.conquestLabel.setVisible(true);
       this.conquestLabel.setText(
         [
@@ -216,7 +259,8 @@ export class TopHeader {
     this.evolutionHitArea.off('pointerdown', this.handleEvolutionDown, this);
     this.evolutionHitArea.destroy();
     this.conquestLabel.destroy();
-    this.evolutionLabel.destroy();
+    this.evolutionLabelBold.destroy();
+    this.evolutionLabelRest.destroy();
     this.tabLabel.destroy();
     this.titleLineOne.destroy();
     this.titleLineTwo.destroy();
@@ -231,19 +275,32 @@ export class TopHeader {
     radius: number,
     fillAlpha: number,
     strokeAlpha: number,
+    seedId: string,
   ): void {
-    this.graphics.fillStyle(tuning.uiPanelAccentColor, fillAlpha);
-    this.graphics.lineStyle(1.5, tuning.uiPanelAccentColor, strokeAlpha);
-    this.graphics.fillRoundedRect(x, y, width, height, radius);
-    this.graphics.strokeRoundedRect(x, y, width, height, radius);
-    this.graphics.lineStyle(1, 0xffffff, 0.12);
-    this.graphics.strokeRoundedRect(
-      x + 3,
-      y + 3,
-      width - 6,
-      height - 6,
-      Math.max(8, radius - 3),
-    );
+    const seed = deriveJitterSeed(seedId);
+    drawJitteredRoundedRectFill(this.graphics, {
+      x,
+      y,
+      width,
+      height,
+      radius,
+      seed,
+      jitter: 1,
+      color: tuning.uiPanelAccentColor,
+      alpha: fillAlpha,
+    });
+    drawJitteredRoundedRect(this.graphics, {
+      x,
+      y,
+      width,
+      height,
+      radius,
+      seed,
+      jitter: 1,
+      strokeWidth: 1.5,
+      color: tuning.uiPanelAccentColor,
+      alpha: strokeAlpha,
+    });
   }
 
   private handleTabOver(): void {
