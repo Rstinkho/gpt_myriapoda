@@ -556,7 +556,36 @@ export class GameScene extends Phaser.Scene {
         canStartConquest: (coord: { q: number; r: number } | null) => this.canStartConquest(coord),
         startConquest: (coord: { q: number; r: number }) => this.startConquest(coord),
       },
+      myriapodaActions: {
+        getSnapshot: () => this.buildEvolutionSnapshot(),
+        purchaseSegment: () => this.purchaseSegmentInEvolution(),
+      },
     });
+  }
+
+  private purchaseSegmentInEvolution(): EvolutionWorldActionResult {
+    const cost = tuning.evolutionAddSegmentBiomassCost;
+    if (this.myriapoda.body.segments.length >= tuning.maxSegments) {
+      return {
+        success: false,
+        reason: `Maximum ${tuning.maxSegments} segments.`,
+      };
+    }
+    if (!this.myriapoda.stomach.canAfford({ biomass: cost })) {
+      return {
+        success: false,
+        reason: `Need ${cost} biomass.`,
+      };
+    }
+    if (!this.myriapoda.stomach.spend({ biomass: cost })) {
+      return {
+        success: false,
+        reason: `Need ${cost} biomass.`,
+      };
+    }
+    this.myriapoda.body.addSegment();
+    this.forceEmitHudChanged();
+    return { success: true };
   }
 
   private canStartConquest(coord: { q: number; r: number } | null): EvolutionWorldActionAvailability {

@@ -26,11 +26,16 @@ describe('evolutionLayout', () => {
     expect(split.rightWidth).toBeCloseTo((1000 - 14) * 0.3, 5);
   });
 
-  it('uses a 35/65 side-panel split with equal summary cards for myriapoda', () => {
-    const layout = getEvolutionMyriapodaPanelLayout({ x: 0, y: 0, width: 420, height: 600 });
+  it('uses a 35/65 side-panel split with three summary columns for myriapoda', () => {
+    const w = 420;
+    const gap = 14;
+    const layout = getEvolutionMyriapodaPanelLayout({ x: 0, y: 0, width: w, height: 600 });
+    const colW = (w - gap * 2) / 3;
 
     expect(layout.summaryRow.height).toBeCloseTo(210, 5);
-    expect(layout.detailCard.width).toBeCloseTo(layout.statsCard.width, 5);
+    expect(layout.detailCard.width).toBeCloseTo(colW, 5);
+    expect(layout.statsCard.width).toBeCloseTo(colW, 5);
+    expect(layout.segmentColumn.width).toBeCloseTo(colW, 5);
     expect(layout.lowerPanel.height).toBeCloseTo(600 - 210 - 14, 5);
   });
 

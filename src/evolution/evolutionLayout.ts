@@ -19,8 +19,12 @@ export interface RectLike {
 
 export interface EvolutionRectGroup {
   summaryRow: RectLike;
+  /** Column 1: body-part selection (choose part). */
   detailCard: RectLike;
+  /** Column 2: text / stats only. */
   statsCard: RectLike;
+  /** Column 3: add-segments card (30 biomass). */
+  segmentColumn: RectLike;
   lowerPanel: RectLike;
 }
 
@@ -113,20 +117,27 @@ export function getEvolutionMyriapodaPanelLayout(
   const lowerY = bounds.y + summaryHeight + gap;
   const lowerHeight = Math.max(80, bounds.height - summaryHeight - gap);
   const summaryRow = { x: bounds.x, y: bounds.y, width: bounds.width, height: summaryHeight };
-  const detailWidth = (bounds.width - gap) * 0.5;
+  /** Three equal columns with `gap` between each. */
+  const colW = Math.max(0, (bounds.width - gap * 2) / 3);
 
   return {
     summaryRow,
     detailCard: {
       x: summaryRow.x,
       y: summaryRow.y,
-      width: detailWidth,
+      width: colW,
       height: summaryRow.height,
     },
     statsCard: {
-      x: summaryRow.x + detailWidth + gap,
+      x: summaryRow.x + colW + gap,
       y: summaryRow.y,
-      width: bounds.width - detailWidth - gap,
+      width: colW,
+      height: summaryRow.height,
+    },
+    segmentColumn: {
+      x: summaryRow.x + 2 * colW + 2 * gap,
+      y: summaryRow.y,
+      width: colW,
       height: summaryRow.height,
     },
     lowerPanel: {
@@ -136,6 +147,21 @@ export function getEvolutionMyriapodaPanelLayout(
       height: lowerHeight,
     },
   };
+}
+
+/**
+ * Height of a single enhancement-tree node card — must stay in sync with
+ * `getEvolutionEnhancementTreeLayout` (`nodeHeight`).
+ */
+export function getEvolutionEnhancementNodeCardHeight(lowerPanelBounds: RectLike): number {
+  const cardInset = Math.max(8, Math.min(16, lowerPanelBounds.width * 0.03));
+  const inner = insetRect(lowerPanelBounds, cardInset);
+  return Math.max(42, Math.min(64, inner.height * 0.16));
+}
+
+/** Square segment card side length = 2× development-tree card height. */
+export function getEvolutionSegmentCardSideLength(lowerPanelBounds: RectLike): number {
+  return getEvolutionEnhancementNodeCardHeight(lowerPanelBounds) * 2;
 }
 
 const WORLD_STATS_CARDS_GAP = 10;

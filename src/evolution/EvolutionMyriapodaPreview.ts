@@ -35,7 +35,7 @@ export class EvolutionMyriapodaPreview {
   private readonly backdropGraphics: Phaser.GameObjects.Graphics;
   private readonly selectionGraphics: Phaser.GameObjects.Graphics;
   private readonly selectionGlowGraphics: Phaser.GameObjects.Graphics;
-  private readonly segmentCount: number;
+  private segmentCount: number;
   private visible = true;
   private elapsed = 0;
   private centerX = 0;
@@ -104,6 +104,16 @@ export class EvolutionMyriapodaPreview {
     if (!visible) {
       this.clear();
     }
+  }
+
+  /**
+   * After GameScene adds a segment via evolution purchase, grow the preview body to match.
+   */
+  syncSegmentCountFromGame(targetCount: number): void {
+    while (this.myriapoda.body.segments.length < targetCount) {
+      this.myriapoda.body.addSegment();
+    }
+    this.segmentCount = this.myriapoda.body.segments.length;
   }
 
   update(deltaSeconds: number): void {

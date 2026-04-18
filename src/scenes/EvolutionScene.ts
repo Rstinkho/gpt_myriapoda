@@ -6,6 +6,7 @@ import {
   drawJitteredRoundedRectFill,
 } from '@/evolution/evolutionBorderStyle';
 import { EvolutionEnhancementBranch } from '@/evolution/EvolutionEnhancementBranch';
+import { EvolutionSegmentCard } from '@/evolution/EvolutionSegmentCard';
 import {
   getEvolutionUpgradeFamily,
   type EvolutionWorldActionId,
@@ -15,6 +16,7 @@ import {
   computeEvolutionContentSplit,
   evolutionToolbarResourceIds,
   getEvolutionMyriapodaPanelLayout,
+  getEvolutionSegmentCardSideLength,
   getEvolutionWorldActionsViewLayout,
   getEvolutionWorldBuildingsViewLayout,
   getEvolutionWorldSideContentRect,
@@ -26,6 +28,7 @@ import { EvolutionWorldView } from '@/evolution/EvolutionWorldView';
 import { closeEvolutionOverlay } from '@/evolution/overlayLifecycle';
 import { getPickupDefinition } from '@/entities/pickups/PickupRegistry';
 import type {
+  EvolutionMyriapodaCallbacks,
   EvolutionSection,
   EvolutionSnapshot,
   EvolutionWorldActionAvailability,
@@ -37,6 +40,7 @@ import { getHexTypeDefinition } from '@/game/hexTypes';
 interface EvolutionSceneData {
   snapshot: EvolutionSnapshot;
   worldActions?: EvolutionWorldActionCallbacks;
+  myriapodaActions?: EvolutionMyriapodaCallbacks;
 }
 
 const TAB_MYRIAPODA_W = 272;
@@ -113,6 +117,11 @@ export class EvolutionScene extends Phaser.Scene {
   private armedWorldAction: EvolutionWorldActionId | null = null;
   private worldActionMessage = '';
   private tooltip?: EvolutionTooltip;
+  private myriapodaActions?: EvolutionMyriapodaCallbacks;
+  private segmentCard?: EvolutionSegmentCard;
+  private segmentCardArea = new Phaser.Geom.Rectangle();
+  private segmentPurchaseErrorTimer?: Phaser.Time.TimerEvent;
+  private choosePartColumnLabel?: Phaser.GameObjects.Text;
 
   constructor() {
     super('EvolutionScene');
@@ -121,6 +130,7 @@ export class EvolutionScene extends Phaser.Scene {
   init(data: EvolutionSceneData): void {
     this.snapshot = data.snapshot;
     this.worldActionCallbacks = data.worldActions;
+    this.myriapodaActions = data.myriapodaActions;
     this.section = 'myriapoda';
     this.hoveredTab = null;
     this.hoveredWorldSubTab = null;
@@ -155,6 +165,7 @@ export class EvolutionScene extends Phaser.Scene {
     this.worldBuildingsSubTabHit = this.createWorldSubTabHit('buildings', WORLD_SUBTAB_BUILDINGS_W);
 
     this.tooltip = new EvolutionTooltip(this, 40);
+    this.segmentCard = new EvolutionSegmentCard(this, () => this.handleSegmentPurchase());
 
     this.title = this.add
       .text(0, 0, 'EVOLUTION', {
@@ -187,6 +198,16 @@ export class EvolutionScene extends Phaser.Scene {
       })
       .setDepth(21)
       .setOrigin(0, 0.5);
+
+    this.choosePartColumnLabel = this.add
+      .text(0, 0, 'CHOOSE PART', {
+        fontFamily: 'Trebuchet MS',
+        fontSize: '10px',
+        fontStyle: 'bold',
+        color: '#8fd4c6',
+        letterSpacing: 2.4,
+      })
+      .setDepth(21);
 
     this.contextTitle = this.add
       .text(0, 0, '', {
@@ -410,6 +431,8 @@ export class EvolutionScene extends Phaser.Scene {
     this.preview?.setVisible(myriapodaVisible);
     this.worldView?.setVisible(worldVisible);
     this.enhancementBranch?.setVisible(myriapodaVisible);
+    this.segmentCard?.setVisible(myriapodaVisible);
+    this.choosePartColumnLabel?.setVisible(myriapodaVisible);
     this.worldActionCards?.setVisible(showWorldActions);
     this.worldBuildingsPanel?.setVisible(showWorldBuildings);
     this.worldActionsSubTab?.setVisible(worldVisible);
@@ -426,6 +449,62 @@ export class EvolutionScene extends Phaser.Scene {
         : '';
     this.refreshWorldActionCards();
     this.refreshContextPanel();
+  }
+
+  private handleSegmentPurchase(): void {
+    const actions = this.myriapodaActions;
+    if (!actions || !this.snapshot) {
+      return;
+    }
+    const result = actions.purchaseSegment();
+    if (!result.success) {
+      if (result.reason) {
+        const p = this.input.activePointer;
+        this.segmentPurchaseErrorTimer?.remove(false);
+        this.tooltip?.show({
+          title: '',
+          description: result.reason,
+          anchorRect: { x: p.x, y: p.y, width: 1, height: 1 },
+        });
+        this.segmentPurchaseErrorTimer = this.time.delayedCall(2000, () => {
+          this.tooltip?.hide();
+          this.segmentPurchaseErrorTimer = undefined;
+        });
+      }
+      return;
+    }
+    this.applyFreshSnapshotFromGame();
+  }
+
+  private applyFreshSnapshotFromGame(): void {
+    const get = this.myriapodaActions?.getSnapshot;
+    if (!get) {
+      return;
+    }
+    this.snapshot = get();
+    const resourceStripWidth =
+      evolutionToolbarResourceIds.length * RESOURCE_ITEM_WIDTH +
+      (evolutionToolbarResourceIds.length - 1) * RESOURCE_ITEM_GAP;
+    const toolbarX = this.toolbarBounds.x;
+    const toolbarWidth = this.toolbarBounds.width;
+    const resourceStripX = toolbarX + toolbarWidth - resourceStripWidth;
+    const toolbarCenterY = this.toolbarBounds.y + TOOLBAR_HEIGHT * 0.5;
+    for (let i = 0; i < evolutionToolbarResourceIds.length; i += 1) {
+      const resourceId = evolutionToolbarResourceIds[i];
+      const slotX = resourceStripX + i * (RESOURCE_ITEM_WIDTH + RESOURCE_ITEM_GAP);
+      const count = this.snapshot?.resourceCounts[resourceId] ?? 0;
+      this.resourceCountTexts[i]?.setText(String(count));
+      this.resourceCountTexts[i]?.setPosition(slotX + 38, toolbarCenterY);
+    }
+    this.preview?.syncSegmentCountFromGame(this.snapshot.myriapoda.segmentCount);
+    if (this.contentBounds.width > 0 && this.contentBounds.height > 0) {
+      this.preview?.layout(this.contentBounds);
+    }
+    this.segmentPurchaseErrorTimer?.remove(false);
+    this.segmentPurchaseErrorTimer = undefined;
+    this.tooltip?.hide();
+    this.refreshContextPanel();
+    this.renderChrome();
   }
 
   private refreshWorldActionCards(): void {
@@ -544,6 +623,16 @@ export class EvolutionScene extends Phaser.Scene {
       myriapodaPanel.lowerPanel.width,
       myriapodaPanel.lowerPanel.height,
     );
+    const col = myriapodaPanel.segmentColumn;
+    const desiredSide = getEvolutionSegmentCardSideLength(myriapodaPanel.lowerPanel);
+    const side = Math.min(desiredSide, col.width, col.height);
+    this.segmentCardArea.setTo(
+      col.x + (col.width - side) * 0.5,
+      col.y + (col.height - side) * 0.5,
+      side,
+      side,
+    );
+    this.segmentCard?.layout(this.segmentCardArea);
     this.enhancementBranch?.layout(
       this.lowerPanelBounds,
       getEvolutionUpgradeFamily(this.preview?.getFocusedPart()?.id ?? null),
@@ -800,16 +889,18 @@ export class EvolutionScene extends Phaser.Scene {
       );
       this.contextStats.setText(
         [
-          `SEGMENTS: ${this.snapshot.myriapoda.segmentCount}`,
           `STORED: ${this.snapshot.myriapoda.stomachResources.length}/${this.snapshot.myriapoda.stomachCapacity}`,
           `PARASITES: ${this.snapshot.myriapoda.parasiteCount}`,
           `FAMILY: ${family.toUpperCase()}`,
           `FOCUS: ${focused ? focused.label : 'None'}`,
         ].join('\n'),
       );
-      const titleX = this.detailCardBounds.x + 14;
-      const titleY = this.detailCardBounds.y + 8;
-      const titleWrap = this.detailCardBounds.width - 28;
+      const col1Pad = 10;
+      const labelY = this.detailCardBounds.y + 8;
+      this.choosePartColumnLabel?.setPosition(this.detailCardBounds.x + col1Pad, labelY);
+      const titleX = this.detailCardBounds.x + col1Pad;
+      const titleY = labelY + (this.choosePartColumnLabel?.height ?? 12) + 4;
+      const titleWrap = Math.max(40, this.detailCardBounds.width - col1Pad * 2);
       this.contextTitle.setPosition(titleX, titleY);
       this.contextTitle.setWordWrapWidth(titleWrap);
       // Place the body text just below the (possibly wrapped) title to avoid
@@ -818,8 +909,9 @@ export class EvolutionScene extends Phaser.Scene {
       this.contextBody.setPosition(titleX, bodyY);
       this.contextBody.setWordWrapWidth(titleWrap);
       this.contextStats.setVisible(true);
-      this.contextStats.setPosition(this.statsCardBounds.x + 14, this.statsCardBounds.y + 12);
-      this.contextStats.setWordWrapWidth(this.statsCardBounds.width - 28);
+      this.contextStats.setPosition(this.statsCardBounds.x + 10, this.statsCardBounds.y + 10);
+      this.contextStats.setWordWrapWidth(Math.max(40, this.statsCardBounds.width - 20));
+      this.segmentCard?.syncFromSnapshot(this.snapshot);
       this.enhancementBranch?.layout(this.lowerPanelBounds, family);
       this.footerHint.setText('CLICK TO PIN A BODY PART  |  E / ESC CLOSE');
       this.renderChrome();
@@ -879,6 +971,9 @@ export class EvolutionScene extends Phaser.Scene {
 
   private handlePointerDown(pointer: Phaser.Input.Pointer): void {
     if (this.section === 'myriapoda') {
+      if (this.segmentCard?.tryConsumePointerDown(pointer.x, pointer.y)) {
+        return;
+      }
       this.preview?.handlePointerDown(pointer.x, pointer.y);
       return;
     }
@@ -974,6 +1069,9 @@ export class EvolutionScene extends Phaser.Scene {
     this.worldView?.destroy();
     this.backdropRenderer?.destroy();
     this.enhancementBranch?.destroy();
+    this.segmentPurchaseErrorTimer?.remove(false);
+    this.segmentPurchaseErrorTimer = undefined;
+    this.segmentCard?.destroy();
     this.worldActionCards?.destroy();
     this.worldBuildingsPanel?.destroy();
     this.tooltip?.destroy();
@@ -987,6 +1085,7 @@ export class EvolutionScene extends Phaser.Scene {
     this.title?.destroy();
     this.subtitle?.destroy();
     this.sectionHeading?.destroy();
+    this.choosePartColumnLabel?.destroy();
     this.contextTitle?.destroy();
     this.contextBody?.destroy();
     this.contextStats?.destroy();
@@ -1008,6 +1107,8 @@ export class EvolutionScene extends Phaser.Scene {
     this.worldView = undefined;
     this.backdropRenderer = undefined;
     this.enhancementBranch = undefined;
+    this.segmentCard = undefined;
+    this.myriapodaActions = undefined;
     this.worldActionCards = undefined;
     this.worldBuildingsPanel = undefined;
     this.worldActionsSubTab = undefined;
@@ -1019,6 +1120,7 @@ export class EvolutionScene extends Phaser.Scene {
     this.title = undefined;
     this.subtitle = undefined;
     this.sectionHeading = undefined;
+    this.choosePartColumnLabel = undefined;
     this.contextTitle = undefined;
     this.contextBody = undefined;
     this.contextStats = undefined;

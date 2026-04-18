@@ -271,6 +271,12 @@ export interface EvolutionWorldActionCallbacks {
   startConquest: (coord: HexCoord) => EvolutionWorldActionResult;
 }
 
+/** Wired from GameScene so the evolution overlay can refresh state and buy segments with biomass. */
+export interface EvolutionMyriapodaCallbacks {
+  getSnapshot: () => EvolutionSnapshot;
+  purchaseSegment: () => EvolutionWorldActionResult;
+}
+
 export interface EvolutionSnapshot {
   myriapoda: EvolutionMyriapodaSnapshot;
   world: WorldRenderSnapshot;
