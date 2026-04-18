@@ -14,7 +14,6 @@ import {
   viewportToWorldPoint,
   worldToViewportPoint,
 } from '@/evolution/worldHexPicking';
-import { deriveJitterSeed, drawJitteredRoundedRect } from '@/evolution/evolutionBorderStyle';
 
 function cloneViewport(viewport: EvolutionWorldViewport): EvolutionWorldViewport {
   return { ...viewport };
@@ -26,7 +25,6 @@ function cloneCamera(camera: EvolutionWorldCamera): EvolutionWorldCamera {
 
 export class EvolutionWorldView {
   private readonly scene: Phaser.Scene;
-  private readonly frameGraphics: Phaser.GameObjects.Graphics;
   private readonly cellGraphics: Phaser.GameObjects.Graphics;
   private readonly glowGraphics: Phaser.GameObjects.Graphics;
   private visible = false;
@@ -46,7 +44,6 @@ export class EvolutionWorldView {
   constructor(scene: Phaser.Scene, snapshot: WorldRenderSnapshot) {
     this.scene = scene;
     this.snapshot = snapshot;
-    this.frameGraphics = scene.add.graphics().setDepth(2.2);
     this.cellGraphics = scene.add.graphics().setDepth(3.2);
     this.glowGraphics = scene.add.graphics().setDepth(4.2);
   }
@@ -74,7 +71,6 @@ export class EvolutionWorldView {
 
   destroy(): void {
     this.clear();
-    this.frameGraphics.destroy();
     this.cellGraphics.destroy();
     this.glowGraphics.destroy();
   }
@@ -240,19 +236,6 @@ export class EvolutionWorldView {
 
     this.clear();
 
-    drawJitteredRoundedRect(this.frameGraphics, {
-      x: this.viewport.x,
-      y: this.viewport.y,
-      width: this.viewport.width,
-      height: this.viewport.height,
-      radius: 34,
-      seed: deriveJitterSeed('evolution-world-hex-view'),
-      jitter: 1.15,
-      strokeWidth: 1.1,
-      color: 0x8cbfb6,
-      alpha: 0.32,
-    });
-
     for (const cell of this.snapshot.cells) {
       const screen = worldToViewportPoint(cell.centerX, cell.centerY, this.viewport, this.camera);
       const radius = Math.max(5, this.snapshot.hexSize * this.camera.zoom * 0.88);
@@ -416,7 +399,6 @@ export class EvolutionWorldView {
   }
 
   private clear(): void {
-    this.frameGraphics.clear();
     this.cellGraphics.clear();
     this.glowGraphics.clear();
   }

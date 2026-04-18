@@ -144,13 +144,14 @@ export class VeinMeshRenderer {
         );
         this.edgeDensityCache[edgeIdx] = density;
       }
-      const alpha = computeEdgeAlpha(
+      let alpha = computeEdgeAlpha(
         edge,
         breath,
         density.bio,
         density.corruption,
         profile.alpha,
       );
+      alpha *= this.slowPulseFactor();
       if (alpha <= 0.01) continue;
 
       this.drawCurve(edge, profile, alpha, center, bands);
@@ -179,20 +180,22 @@ export class VeinMeshRenderer {
         jitter: node.hash,
         curve: { points: [], widths: [] },
       };
-      const alpha = computeEdgeAlpha(
+      let alpha = computeEdgeAlpha(
         pseudoEdge,
         breath,
         density.bio,
         density.corruption,
         profile.alpha,
       );
+      alpha *= this.slowPulseFactor();
       if (alpha <= 0.01) continue;
       const radius = Math.max(
         bands.minStrokePixels,
         node.radius * mesh.bifurcationDotRadiusFactor,
       );
+      const swayed = this.swayLocalPoint(node.x, node.y, node.hash, idx);
       graphics.fillStyle(profile.coreColor, alpha * mesh.bifurcationDotAlphaFactor);
-      graphics.fillCircle(center.x + node.x, center.y + node.y, radius);
+      graphics.fillCircle(center.x + swayed.x, center.y + swayed.y, radius);
     }
   }
 
@@ -224,6 +227,7 @@ export class VeinMeshRenderer {
     // mid pass cuts this renderer's draw-call count by ~33%. The core alpha is bumped
     // slightly and the core width interpolated up toward the old mid-band radius, so
     // the visible silhouette is preserved.
+    const edgeSeed = edge.jitter;
     this.strokeBand(
       points,
       widths,
@@ -232,6 +236,7 @@ export class VeinMeshRenderer {
       bands.haloRadiusFactor,
       bands.minStrokePixels,
       center,
+      edgeSeed,
     );
     const blendedCoreRadius = (bands.coreRadiusFactor + bands.midRadiusFactor * 0.35);
     const blendedCoreAlpha = Math.min(1, alpha * (1 + bands.midAlphaFactor * 0.35));
@@ -243,7 +248,49 @@ export class VeinMeshRenderer {
       blendedCoreRadius,
       bands.minStrokePixels,
       center,
+      edgeSeed,
     );
+  }
+
+  /** Occasional gentle brightening / dimming on a multi-second cadence (independent of breath). */
+  private slowPulseFactor(): number {
+    const m = tuning.background.veinMesh;
+    const mix = m.slowPulseMix;
+    if (mix <= 0) {
+      return 1;
+    }
+    const wave = 0.5 + 0.5 * Math.sin(this.elapsed * Math.PI * 2 * m.slowPulseHz);
+    return 1 - mix + mix * wave;
+  }
+
+  /**
+   * Small world-space offset for a polyline sample so veins drift slowly without rebuilding the mesh.
+   */
+  private swayLocalPoint(localX: number, localY: number, seed: number, pointIndex: number): {
+    x: number;
+    y: number;
+  } {
+    const m = tuning.background.veinMesh;
+    const amp = m.swayAmplitude;
+    if (amp <= 1e-6) {
+      return { x: localX, y: localY };
+    }
+    const p = seed * 19.231 + pointIndex * 3.127 + localX * 0.0007 + localY * 0.0006;
+    const spatial = (localX + localY) * m.swaySpatialFreq;
+    const e1 = this.elapsed * Math.PI * 2 * m.swayDriftHz;
+    const e2 = this.elapsed * Math.PI * 2 * m.swayWobbleHz;
+    const wx =
+      Math.sin(e1 + p) * 0.55 +
+      Math.sin(e2 + p * 1.7 + spatial) * 0.35 +
+      Math.sin(e1 * 0.38 + p * 0.4) * 0.1;
+    const wy =
+      Math.cos(e1 * 0.92 + p * 1.3) * 0.55 +
+      Math.cos(e2 * 1.07 + spatial + p) * 0.35 +
+      Math.sin(e2 * 0.41 + p) * 0.1;
+    return {
+      x: localX + wx * amp,
+      y: localY + wy * amp,
+    };
   }
 
   private strokeBand(
@@ -254,12 +301,13 @@ export class VeinMeshRenderer {
     radiusFactor: number,
     minPx: number,
     center: { x: number; y: number },
+    edgeSeed: number,
   ): void {
     const graphics = this.graphics;
     if (alpha <= 0.01) return;
     for (let i = 1; i < points.length; i += 1) {
-      const prev = points[i - 1]!;
-      const curr = points[i]!;
+      const prev = this.swayLocalPoint(points[i - 1]!.x, points[i - 1]!.y, edgeSeed, i - 1);
+      const curr = this.swayLocalPoint(points[i]!.x, points[i]!.y, edgeSeed, i);
       const wPrev = widths[i - 1]!;
       const wCurr = widths[i]!;
       const avgWidth = Math.max(minPx, ((wPrev + wCurr) * 0.5) * radiusFactor);

@@ -153,8 +153,10 @@ export const tuning = {
   // UI
   uiPanelMinWidth: 240,
   uiPanelMaxWidth: 280,
-  uiPanelMarginTop: 18,
-  uiPanelMarginRight: 20,
+  /** Top edge of the status panel (stomach / stage / CDs), below the left header cluster. */
+  uiPanelContentTop: 216,
+  uiPanelMarginBottom: 18,
+  uiPanelMarginLeft: 20,
   uiCounterIconSize: 24,
   uiHeaderPillWidth: 100,
   uiHeaderPillHeight: 42,
@@ -236,13 +238,13 @@ export const tuning = {
       /** Initial attractor targets scattered across the coverage area. Controls overall vein density. */
       attractorCount: 260,
       /** Each growth step extends a tip by this many world pixels. Smaller = more detail, slower gen. */
-      growthStep: 46,
+      growthStep: 60,
       /** Attractors within this radius of a tip pull it. Must be ≥ growthStep. */
-      influenceRadius: 260,
+      influenceRadius: 285,
       /** Attractors within this radius of any node are consumed (region is "fed"). */
       killRadius: 62,
       /** Safety cap on SCA iterations; real growth terminates much earlier. */
-      maxGrowthIterations: 90,
+      maxGrowthIterations: 105,
       /** Branches at this depth and deeper become thin red capillaries; shallower are cyan trunks. */
       capillaryDepthThreshold: 4,
       /** Murray's law exponent. 3 is the textbook value (minimizes work+material); 2.5-2.7 occurs in tissue. */
@@ -260,11 +262,25 @@ export const tuning = {
       /** Graph seed. Deterministic (XORed with stage for subtle variation across stages). */
       seed: 0xabcdef,
       /** Multiplier on max(halfWidth, halfHeight) to extend growth beyond the viewport edges. */
-      coverageMultiplier: 1.15,
+      coverageMultiplier: 1.2,
 
       // --- Rendering & motion ---
       /** Global breath rate in Hz — one slow inhale/exhale shared by every vein. 0.2 Hz ≈ 5 s/cycle. */
       breathRateHz: 0.2,
+      /**
+       * Subtle world-space wobble of vein polylines (does not rebuild the graph). Drift + ripple
+       * frequencies in Hz; amplitude in the same units as growth (≈ world pixels at mesh scale).
+       */
+      swayAmplitude: 5.2,
+      swayDriftHz: 0.1,
+      swayWobbleHz: 0.36,
+      swaySpatialFreq: 0.0011,
+      /**
+       * Very slow alpha pulse (Hz) so brightness occasionally swells, independent of breath.
+       * `slowPulseMix` is the fractional depth of that modulation [0..1].
+       */
+      slowPulseHz: 0.055,
+      slowPulseMix: 0.08,
       /** Depth of the mesh graphics; sits just below the hex grid overlay. */
       depth: 0.128,
       /** Parallax factor matching the old layer2 depth so the mesh anchors in the bio-field. */
@@ -292,7 +308,7 @@ export const tuning = {
         coreColor: BIO_COLORS.cyanSoft,
         alpha: {
           baseAlpha: 0.28,
-          breathAmplitude: 0.05,
+          breathAmplitude: 0.065,
           bioBoost: 0.22,
           corruptionBoost: 0.05,
           jitterAmplitude: 0.04,
@@ -305,7 +321,7 @@ export const tuning = {
         coreColor: BIO_COLORS.capillaryHot,
         alpha: {
           baseAlpha: 0.3,
-          breathAmplitude: 0.055,
+          breathAmplitude: 0.07,
           bioBoost: 0.18,
           corruptionBoost: 0.22,
           jitterAmplitude: 0.05,

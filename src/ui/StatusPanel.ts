@@ -1,4 +1,5 @@
 import * as Phaser from 'phaser';
+import { deriveJitterSeed, drawJitteredRoundedRect } from '@/evolution/evolutionBorderStyle';
 import { tuning } from '@/game/tuning';
 import type {
   HudSnapshot,
@@ -215,9 +216,11 @@ export class StatusPanel {
       tuning.uiPanelMaxWidth,
       Math.max(tuning.uiPanelMinWidth, this.scene.scale.width * 0.24),
     );
-    const height = Math.min(this.scene.scale.height - tuning.uiPanelMarginTop * 2, 560);
-    const x = this.scene.scale.width - width - tuning.uiPanelMarginRight;
-    const y = tuning.uiPanelMarginTop;
+    const top = tuning.uiPanelContentTop;
+    const bottomInset = tuning.uiPanelMarginBottom;
+    const height = Math.min(this.scene.scale.height - top - bottomInset, 560);
+    const x = tuning.uiPanelMarginLeft;
+    const y = top;
     const meterWidth = width - 48;
     const chamberY = y + 258;
     const pickupRowY = y + height - 48;
@@ -654,59 +657,38 @@ export class StatusPanel {
     metrics: PanelMetrics,
     parasiteAlertProgress: number,
   ): void {
-    const pulse = 0.5 + 0.5 * Math.sin(this.scene.time.now / 600);
-    this.panelGraphics.fillStyle(0x061117, 0.8);
-    this.panelGraphics.fillRoundedRect(
-      metrics.x,
-      metrics.y,
-      metrics.width,
-      metrics.height,
-      28,
+    const t = Phaser.Math.Clamp(parasiteAlertProgress, 0, 1);
+    const strokeColor = this.mixRgb(
+      tuning.uiPanelAccentColor,
+      tuning.uiDangerColor,
+      t * 0.88,
     );
-    this.panelGraphics.fillStyle(0xffffff, 0.02 + pulse * 0.01);
-    this.panelGraphics.fillRoundedRect(
-      metrics.x + 2,
-      metrics.y + 2,
-      metrics.width - 4,
-      metrics.height - 4,
-      26,
-    );
-    if (parasiteAlertProgress > 0) {
-      this.panelGraphics.fillStyle(
-        tuning.uiDangerColor,
-        0.05 + parasiteAlertProgress * 0.08,
-      );
-      this.panelGraphics.fillRoundedRect(
-        metrics.x + 10,
-        metrics.y + 10,
-        metrics.width - 20,
-        metrics.height - 20,
-        24,
-      );
-    }
-    this.panelGraphics.lineStyle(1.2, tuning.uiPanelAccentColor, 0.2);
-    this.panelGraphics.strokeRoundedRect(
-      metrics.x,
-      metrics.y,
-      metrics.width,
-      metrics.height,
-      28,
-    );
-    this.panelGraphics.lineStyle(1, 0xffffff, 0.05 + pulse * 0.02);
-    this.panelGraphics.strokeRoundedRect(
-      metrics.x + 2,
-      metrics.y + 2,
-      metrics.width - 4,
-      metrics.height - 4,
-      26,
-    );
-    this.panelGraphics.lineStyle(1, tuning.uiPanelAccentColor, 0.12);
+    drawJitteredRoundedRect(this.panelGraphics, {
+      x: metrics.x,
+      y: metrics.y,
+      width: metrics.width,
+      height: metrics.height,
+      radius: 28,
+      seed: deriveJitterSeed('status-panel-chrome'),
+      jitter: 1.12,
+      strokeWidth: 1.05 + t * 0.35,
+      color: strokeColor,
+      alpha: 0.38 + t * 0.22,
+    });
+    this.panelGraphics.lineStyle(1, tuning.uiPanelAccentColor, 0.1 + t * 0.12);
     this.panelGraphics.lineBetween(
       metrics.x + 24,
       metrics.chamberY - 18,
       metrics.x + metrics.width - 24,
       metrics.chamberY - 18,
     );
+  }
+
+  private mixRgb(from: number, to: number, t: number): number {
+    const r = Math.round(((from >> 16) & 0xff) * (1 - t) + ((to >> 16) & 0xff) * t);
+    const g = Math.round(((from >> 8) & 0xff) * (1 - t) + ((to >> 8) & 0xff) * t);
+    const b = Math.round((from & 0xff) * (1 - t) + (to & 0xff) * t);
+    return (r << 16) | (g << 8) | b;
   }
 
   private drawChamberParticleGlow(

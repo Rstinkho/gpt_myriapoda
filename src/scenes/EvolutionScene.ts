@@ -626,19 +626,6 @@ export class EvolutionScene extends Phaser.Scene {
       this.headerSeparator.y2,
     );
 
-    drawJitteredRoundedRect(this.chromeGraphics, {
-      x: this.outerBounds.x,
-      y: this.outerBounds.y,
-      width: this.outerBounds.width,
-      height: this.outerBounds.height,
-      radius: 38,
-      seed: deriveJitterSeed('evolution-outer-panel'),
-      jitter: 1.15,
-      strokeWidth: 1.1,
-      color: 0x8fd4c6,
-      alpha: 0.4,
-    });
-
     this.drawSectionTab(this.myriapodaTab, 'myriapoda', TAB_MYRIAPODA_W, TAB_MYRIAPODA_H);
     this.drawSectionTab(this.worldTab, 'world', TAB_WORLD_W, TAB_WORLD_H);
 
@@ -656,22 +643,6 @@ export class EvolutionScene extends Phaser.Scene {
         WORLD_RIGHT_SUBTAB_H,
       );
     }
-
-    // Hand-drawn jittered border around the live preview area (Myriapoda
-    // preview when on `myriapoda`, strategic hex view when on `world`). The
-    // seed differs per section so each view has its own consistent silhouette.
-    drawJitteredRoundedRect(this.chromeGraphics, {
-      x: this.contentBounds.x,
-      y: this.contentBounds.y,
-      width: this.contentBounds.width,
-      height: this.contentBounds.height,
-      radius: 34,
-      seed: deriveJitterSeed(`evolution-content-${this.section}`),
-      jitter: 1.2,
-      strokeWidth: 1.2,
-      color: 0x7aaea4,
-      alpha: 0.55,
-    });
 
     // Detail / stats / tree panels intentionally have no background or border —
     // they read as clean text+graphic groups against the evolution backdrop.
