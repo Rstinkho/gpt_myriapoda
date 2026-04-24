@@ -1,10 +1,10 @@
 export const corridorHexType = {
   id: 'corridor',
   producesPlants: false,
-  shadowColor: 0x081017,
-  fillColor: 0x111f2b,
-  reactiveColor: 0x275170,
-  glowColor: 0x5ca6d8,
-  strokeColor: 0xc6ebff,
-  contourColor: 0xf5fdff,
+  shadowColor: 0x05080b,
+  fillColor: 0x0b1217,
+  reactiveColor: 0x1d313c,
+  glowColor: 0x3f6876,
+  strokeColor: 0x88aebb,
+  contourColor: 0xe6f3f7,
 } as const;

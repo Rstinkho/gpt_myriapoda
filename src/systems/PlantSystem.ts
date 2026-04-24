@@ -98,6 +98,10 @@ export class PlantSystem {
         }
       }
       if (mouthDistance <= tuning.plantGatherRadiusPx && plant.beginChewing()) {
+        this.eventBus.emit(GameEvents.plantHarvestStarted, {
+          plantId: plant.id,
+          cellKey: plant.cellKey,
+        });
         this.eventBus.emit(GameEvents.cameraImpulse, {
           duration: 0.12,
           zoom: tuning.cameraPickupZoom * 0.8,

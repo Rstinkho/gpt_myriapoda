@@ -6,6 +6,12 @@ import { tuning } from '@/game/tuning';
 import type { ConquestProgressSnapshot, HexCoord } from '@/game/types';
 import { createWorldAttackWave } from '@/systems/worldAttacks';
 
+export interface ConquestRules {
+  occupiedSeconds: number;
+  killGoal: number;
+  maxActiveLeeches: number;
+}
+
 interface ActiveConquestState {
   targetCoord: HexCoord;
   occupiedSeconds: number;
@@ -53,12 +59,21 @@ function pointToHexCoord(worldX: number, worldY: number, hexSize: number): HexCo
 
 export class ConquestSystem {
   private state: ActiveConquestState | null = null;
+  private rules: ConquestRules = {
+    occupiedSeconds: tuning.conquerOccupancySeconds,
+    killGoal: tuning.conquerKillGoal,
+    maxActiveLeeches: tuning.conquerMaxActiveLeeches,
+  };
 
   constructor(
     private readonly enemyFactory: EnemyFactory,
     private readonly enemies: Map<string, Enemy>,
     private readonly randomFloat: () => number = Math.random,
   ) {}
+
+  setRules(rules: ConquestRules): void {
+    this.rules = { ...rules };
+  }
 
   isActive(): boolean {
     return this.state !== null;
@@ -80,9 +95,9 @@ export class ConquestSystem {
     return true;
   }
 
-  update(world: HexWorld, headPosition: { x: number; y: number }): boolean {
+  update(world: HexWorld, headPosition: { x: number; y: number }): HexCoord | null {
     if (!this.state) {
-      return false;
+      return null;
     }
 
     this.state.playerInside = coordsMatch(
@@ -91,7 +106,7 @@ export class ConquestSystem {
     );
     if (this.state.playerInside) {
       this.state.occupiedSeconds = Math.min(
-        tuning.conquerOccupancySeconds,
+        this.rules.occupiedSeconds,
         this.state.occupiedSeconds + tuning.fixedStepSeconds,
       );
     }
@@ -105,15 +120,16 @@ export class ConquestSystem {
     this.spawnAttackWave(world);
 
     if (
-      this.state.occupiedSeconds >= tuning.conquerOccupancySeconds &&
-      this.state.killCount >= tuning.conquerKillGoal
+      this.state.occupiedSeconds >= this.rules.occupiedSeconds &&
+      this.state.killCount >= this.rules.killGoal
     ) {
+      const completedCoord = { ...this.state.targetCoord };
       world.completeConquest(this.state.targetCoord);
       this.state = null;
-      return true;
+      return completedCoord;
     }
 
-    return false;
+    return null;
   }
 
   handleEnemyKilled(payload: { enemyId?: string }): void {
@@ -123,7 +139,7 @@ export class ConquestSystem {
 
     if (this.state.activeEnemyIds.delete(payload.enemyId)) {
       this.state.killCount = Math.min(
-        tuning.conquerKillGoal,
+        this.rules.killGoal,
         this.state.killCount + 1,
       );
     }
@@ -137,9 +153,9 @@ export class ConquestSystem {
     return {
       coord: { ...this.state.targetCoord },
       occupiedSeconds: this.state.occupiedSeconds,
-      occupiedGoalSeconds: tuning.conquerOccupancySeconds,
+      occupiedGoalSeconds: this.rules.occupiedSeconds,
       killCount: this.state.killCount,
-      killGoal: tuning.conquerKillGoal,
+      killGoal: this.rules.killGoal,
       playerInside: this.state.playerInside,
     };
   }
@@ -153,12 +169,12 @@ export class ConquestSystem {
       return;
     }
 
-    const remainingKills = tuning.conquerKillGoal - this.state.killCount;
+    const remainingKills = this.rules.killGoal - this.state.killCount;
     const remainingEnemyCapacity = enforceEnemyCap(this.enemies.size, tuning.enemyCap);
     const maxWaveBudget = Math.min(
       remainingKills,
       remainingEnemyCapacity,
-      tuning.conquerMaxActiveLeeches,
+      this.rules.maxActiveLeeches,
     );
     if (maxWaveBudget <= 0) {
       return;

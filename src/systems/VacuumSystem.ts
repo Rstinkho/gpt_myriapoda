@@ -68,6 +68,7 @@ export class VacuumSystem {
         myriapoda.vacuum.triggerConsumePulse();
         this.eventBus.emit(GameEvents.pickupAbsorbed, {
           pickupId,
+          resourceId: pickup.resourceId,
           digestValue: pickup.definition.digestValue,
         });
         this.eventBus.emit(GameEvents.cameraImpulse, {

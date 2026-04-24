@@ -1,6 +1,5 @@
 import * as Phaser from 'phaser';
 import type { EvolutionScene } from '@/scenes/EvolutionScene';
-import { textureKeys } from '@/game/assets';
 import { deriveJitterSeed, drawJitteredRoundedRect } from '@/evolution/evolutionBorderStyle';
 import { formatResourceCostIconPairs } from '@/evolution/evolutionData';
 import {
@@ -9,6 +8,7 @@ import {
   type EvolutionBuildingSlotLayout,
   type RectLike,
 } from '@/evolution/evolutionLayout';
+import type { EvolutionWorldBuildingAvailability } from '@/game/types';
 
 const COST_ICON_SIZE = 12;
 const COST_ROW_GAP = 2;
@@ -22,21 +22,26 @@ export class EvolutionWorldBuildingsPanel {
   private readonly hitZones: Phaser.GameObjects.Zone[] = [];
   private selectedHexBuildable = false;
   private hoveredIndex: number | null = null;
-  /**
-   * Tracks panel visibility so positioning code can avoid setting cost icons
-   * visible while the panel is hidden (the icons live in the scene root, not
-   * a Container, so layout passes must consult this flag).
-   */
+  private availabilityById = new Map<string, EvolutionWorldBuildingAvailability>();
+  private sectionBounds: RectLike = { x: 0, y: 0, width: 1, height: 1 };
   private visible = true;
 
-  constructor(private readonly scene: EvolutionScene) {
+  constructor(
+    private readonly scene: EvolutionScene,
+    private readonly onBuildingSelected: (buildingId: string) => void,
+  ) {
     this.cardGraphics = scene.add.graphics().setDepth(21.5);
 
-    const keys = textureKeys.evolutionBuildings;
-    for (let i = 0; i < keys.length; i += 1) {
+    const slotCount = getEvolutionWorldBuildingSlotLayout({
+      x: 0,
+      y: 0,
+      width: 260,
+      height: 180,
+    }).length;
+    for (let i = 0; i < slotCount; i += 1) {
       this.icons.push(
         scene.add
-          .image(0, 0, keys[i])
+          .image(0, 0, 'evo-building-0')
           .setDepth(21.6)
           .setOrigin(0.5, 0.5),
       );
@@ -52,18 +57,14 @@ export class EvolutionWorldBuildingsPanel {
     this.selectedHexBuildable = buildable;
   }
 
-  layout(sectionBounds: RectLike): void {
-    const grid = getEvolutionWorldBuildingsGridBounds(sectionBounds);
-    const slots = getEvolutionWorldBuildingSlotLayout(grid);
+  setCardState(availabilityById: ReadonlyMap<string, EvolutionWorldBuildingAvailability>): void {
+    this.availabilityById = new Map(availabilityById);
+    this.renderCurrentLayout();
+  }
 
-    this.cardGraphics.clear();
-    this.cardGraphics.setVisible(this.visible);
-    slots.forEach((slot, index) => {
-      this.renderCardBackground(slot, index);
-      this.positionIcon(slot, index);
-      this.positionCostRow(index, slot);
-      this.wireHoverZone(index, slot);
-    });
+  layout(sectionBounds: RectLike): void {
+    this.sectionBounds = { ...sectionBounds };
+    this.renderCurrentLayout();
   }
 
   setVisible(visible: boolean): void {
@@ -114,10 +115,43 @@ export class EvolutionWorldBuildingsPanel {
     }
   }
 
+  private renderCurrentLayout(): void {
+    const grid = getEvolutionWorldBuildingsGridBounds(this.sectionBounds);
+    const slots = getEvolutionWorldBuildingSlotLayout(grid);
+
+    this.cardGraphics.clear();
+    this.cardGraphics.setVisible(this.visible);
+    slots.forEach((slot, index) => {
+      this.renderCardBackground(slot, index);
+      this.positionIcon(slot, index);
+      this.positionCostRow(index, slot);
+      this.wireHoverZone(index, slot);
+    });
+  }
+
   private renderCardBackground(slot: EvolutionBuildingSlotLayout, index: number): void {
     const { rect } = slot;
     const seed = deriveJitterSeed(`building-${slot.id}`);
     const hovered = this.hoveredIndex === index;
+    const availability = this.getAvailability(slot);
+    const borderColor = slot.locked
+      ? 0x567078
+      : availability.allowed
+        ? hovered
+          ? 0xbef1ff
+          : 0x6ee0c8
+        : hovered
+          ? 0x8fbec9
+          : 0x536f76;
+    const alpha = slot.locked
+      ? 0.22
+      : availability.allowed
+        ? hovered
+          ? 0.74
+          : 0.58
+        : hovered
+          ? 0.44
+          : 0.3;
 
     drawJitteredRoundedRect(this.cardGraphics, {
       x: rect.x,
@@ -127,19 +161,19 @@ export class EvolutionWorldBuildingsPanel {
       radius: CARD_RADIUS,
       seed,
       strokeWidth: 2,
-      color: hovered ? 0x9ee7ff : 0x6ee0c8,
-      alpha: hovered ? 0.68 : 0.55,
+      color: borderColor,
+      alpha,
     });
   }
 
   private positionIcon(slot: EvolutionBuildingSlotLayout, index: number): void {
     const { rect } = slot;
     const icon = this.icons[index];
-    // No labels on the card now — let the icon claim most of the tile and
-    // leave a small strip at the bottom for the cost row.
     const iconSize = Math.min(rect.width - 12, rect.height * 0.7);
+    icon.setTexture(slot.textureKey);
     icon.setPosition(rect.x + rect.width * 0.5, rect.y + rect.height * 0.42);
     icon.setDisplaySize(iconSize, iconSize);
+    icon.setAlpha(slot.locked ? 0.36 : this.getAvailability(slot).allowed ? 1 : 0.56);
     icon.setVisible(this.visible);
   }
 
@@ -147,6 +181,8 @@ export class EvolutionWorldBuildingsPanel {
     const entries = formatResourceCostIconPairs(slot.cost);
     const icons = this.costIcons[index];
     const amounts = this.costAmountLabels[index];
+    const availability = this.getAvailability(slot);
+    const alpha = slot.locked ? 0.34 : availability.allowed ? 1 : 0.54;
 
     while (icons.length < entries.length) {
       const icon = this.scene.add.image(0, 0, entries[icons.length].textureKey);
@@ -180,9 +216,12 @@ export class EvolutionWorldBuildingsPanel {
       if (i < entries.length) {
         icons[i].setTexture(entries[i].textureKey);
         icons[i].setPosition(cursorX + COST_ICON_SIZE * 0.5, rowY);
+        icons[i].setAlpha(alpha);
         icons[i].setVisible(this.visible);
         cursorX += COST_ICON_SIZE + COST_ROW_GAP;
         amounts[i].setPosition(cursorX, rowY);
+        amounts[i].setAlpha(alpha);
+        amounts[i].setColor(slot.locked ? '#6b8480' : availability.allowed ? '#d6efe8' : '#8ba19d');
         amounts[i].setVisible(this.visible);
         cursorX += amounts[i].width + COST_ROW_GAP * 2;
       } else {
@@ -194,6 +233,7 @@ export class EvolutionWorldBuildingsPanel {
 
   private wireHoverZone(index: number, slot: EvolutionBuildingSlotLayout): void {
     const zone = this.hitZones[index];
+    const availability = this.getAvailability(slot);
     zone.setPosition(slot.rect.x, slot.rect.y);
     zone.setSize(slot.rect.width, slot.rect.height);
     zone.setVisible(this.visible);
@@ -214,16 +254,37 @@ export class EvolutionWorldBuildingsPanel {
         title: slot.name,
         description: slot.description,
         cost: slot.cost,
-        meta: this.selectedHexBuildable ? 'READY ON THIS HEX' : `REQUIRES ${slot.requirement}`,
+        meta: slot.locked
+          ? 'LOCKED'
+          : availability.allowed
+            ? 'READY ON THIS HEX'
+            : (availability.reason ?? `REQUIRES ${slot.requirement}`).toUpperCase(),
         anchorRect: rectCopy,
       });
       tooltip?.bringToTop();
+      this.renderCurrentLayout();
     });
     zone.on('pointerout', () => {
       if (this.hoveredIndex === index) {
         this.hoveredIndex = null;
         this.scene.getTooltip()?.hide();
+        this.renderCurrentLayout();
       }
     });
+    zone.on('pointerdown', () => {
+      if (slot.locked || !availability.allowed) {
+        return;
+      }
+      this.onBuildingSelected(slot.id);
+    });
+  }
+
+  private getAvailability(slot: EvolutionBuildingSlotLayout): EvolutionWorldBuildingAvailability {
+    return (
+      this.availabilityById.get(slot.id) ?? {
+        allowed: this.selectedHexBuildable && !slot.locked,
+        reason: this.selectedHexBuildable ? undefined : 'Select an owned buildable hex.',
+      }
+    );
   }
 }

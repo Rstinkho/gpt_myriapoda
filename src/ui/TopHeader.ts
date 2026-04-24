@@ -18,7 +18,10 @@ const HEADER_MARGIN_X = 28;
 const TITLE_LINE_1_Y = 22;
 const TITLE_LINE_2_Y = 60;
 const PILL_ROW_Y = 98;
-const CONQUEST_BANNER_Y = 152;
+const TASK_PANEL_Y = 152;
+const TASK_PANEL_WIDTH = 356;
+const TASK_PANEL_INSET = 14;
+const TASK_PANEL_GAP = 10;
 
 /** TAB pill: single row — label then two dots (same baseline / vertical center). */
 const TAB_ROW_PAD_X = 14;
@@ -41,6 +44,8 @@ export class TopHeader {
   private readonly tabLabel: Phaser.GameObjects.Text;
   private readonly evolutionLabelBold: Phaser.GameObjects.Text;
   private readonly evolutionLabelRest: Phaser.GameObjects.Text;
+  private readonly taskLabel: Phaser.GameObjects.Text;
+  private readonly taskText: Phaser.GameObjects.Text;
   private readonly conquestLabel: Phaser.GameObjects.Text;
   private readonly tabHitArea: Phaser.GameObjects.Zone;
   private readonly evolutionHitArea: Phaser.GameObjects.Zone;
@@ -48,6 +53,7 @@ export class TopHeader {
   private evolutionHovered = false;
   private uiMode: HudSnapshot['uiMode'] = 'minimal';
   private conquest: HudSnapshot['conquest'] = null;
+  private worldProgress: HudSnapshot['worldProgress'] = null;
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -102,6 +108,23 @@ export class TopHeader {
     });
     this.evolutionLabelRest.setOrigin(0, 0.5).setScrollFactor(0).setDepth(1002);
 
+    this.taskLabel = scene.add.text(0, 0, '', {
+      fontFamily: 'Trebuchet MS',
+      fontSize: '11px',
+      fontStyle: 'bold',
+      color: accentColor,
+      letterSpacing: 1.8,
+    });
+    this.taskLabel.setOrigin(0, 0).setScrollFactor(0).setDepth(1002).setVisible(false);
+
+    this.taskText = scene.add.text(0, 0, '', {
+      fontFamily: 'Trebuchet MS',
+      fontSize: '13px',
+      color: '#dffaff',
+      lineSpacing: 4,
+    });
+    this.taskText.setOrigin(0, 0).setScrollFactor(0).setDepth(1002).setVisible(false);
+
     this.conquestLabel = scene.add.text(0, 0, '', {
       fontFamily: 'Trebuchet MS',
       fontSize: '12px',
@@ -155,13 +178,13 @@ export class TopHeader {
     this.tabHitArea.setSize(tuning.uiHeaderPillWidth, pillH);
     this.evolutionHitArea.setPosition(evolutionX, evolutionY);
     this.evolutionHitArea.setSize(evolutionPillWidth, pillH);
-    this.conquestLabel.setPosition(HEADER_MARGIN_X + 14, CONQUEST_BANNER_Y + 10);
     this.redraw();
   }
 
   setSnapshot(snapshot: HudSnapshot): void {
     this.uiMode = snapshot.uiMode;
     this.conquest = snapshot.conquest;
+    this.worldProgress = snapshot.worldProgress ?? null;
     this.redraw();
   }
 
@@ -219,9 +242,15 @@ export class TopHeader {
     this.drawModeDot(leftDotX, dotY, leftDotLit);
     this.drawModeDot(rightDotX, dotY, rightDotLit);
 
+    let nextPanelY = TASK_PANEL_Y;
+    const taskPanelHeight = this.drawTaskPanel();
+    if (taskPanelHeight > 0) {
+      nextPanelY += taskPanelHeight + TASK_PANEL_GAP;
+    }
+
     if (this.conquest) {
       const bannerX = HEADER_MARGIN_X;
-      const bannerY = CONQUEST_BANNER_Y;
+      const bannerY = nextPanelY;
       const bannerWidth = 268;
       const bannerHeight = 54;
       this.drawPill(bannerX, bannerY, bannerWidth, bannerHeight, 18, 0.15, 0.54, 'hud-conquest-banner');
@@ -237,6 +266,7 @@ export class TopHeader {
         alpha: 0.08,
       });
       this.conquestLabel.setVisible(true);
+      this.conquestLabel.setPosition(HEADER_MARGIN_X + 14, bannerY + 10);
       this.conquestLabel.setText(
         [
           `CONQUER ${this.conquest.coord.q},${this.conquest.coord.r}  ${this.conquest.playerInside ? 'INSIDE' : 'OUTSIDE'}`,
@@ -258,6 +288,8 @@ export class TopHeader {
     this.evolutionHitArea.off('pointerout', this.handleEvolutionOut, this);
     this.evolutionHitArea.off('pointerdown', this.handleEvolutionDown, this);
     this.evolutionHitArea.destroy();
+    this.taskLabel.destroy();
+    this.taskText.destroy();
     this.conquestLabel.destroy();
     this.evolutionLabelBold.destroy();
     this.evolutionLabelRest.destroy();
@@ -329,6 +361,51 @@ export class TopHeader {
 
   private handleEvolutionDown(): void {
     this.callbacks.requestEvolutionOpen?.();
+  }
+
+  private drawTaskPanel(): number {
+    if (!this.worldProgress || this.worldProgress.objectives.length === 0) {
+      this.taskLabel.setVisible(false);
+      this.taskText.setVisible(false);
+      return 0;
+    }
+
+    const stageLabel = this.worldProgress.isTutorial
+      ? `TUTORIAL ${this.worldProgress.stageIndex}/${this.worldProgress.totalStages}`
+      : `${this.worldProgress.profileLabel.toUpperCase()}  LOOP ${this.worldProgress.cycle + 1}`;
+    const lines = [
+      this.worldProgress.stageTitle.toUpperCase(),
+      ...this.worldProgress.objectives.map((objective) =>
+        objective.showCounter
+          ? `${objective.completed ? '[x]' : '[ ]'} ${objective.label} ${objective.current}/${objective.target}`
+          : `${objective.completed ? '[x]' : '[ ]'} ${objective.label}`,
+      ),
+    ];
+
+    this.taskLabel.setText(stageLabel);
+    this.taskLabel.setPosition(HEADER_MARGIN_X + TASK_PANEL_INSET, TASK_PANEL_Y + 10);
+    this.taskLabel.setVisible(true);
+
+    this.taskText.setText(lines.join('\n'));
+    this.taskText.setWordWrapWidth(TASK_PANEL_WIDTH - TASK_PANEL_INSET * 2, true);
+    this.taskText.setPosition(
+      HEADER_MARGIN_X + TASK_PANEL_INSET,
+      TASK_PANEL_Y + 28,
+    );
+    this.taskText.setVisible(true);
+
+    const panelHeight = 40 + this.taskText.height;
+    this.drawPill(
+      HEADER_MARGIN_X,
+      TASK_PANEL_Y,
+      TASK_PANEL_WIDTH,
+      panelHeight,
+      18,
+      0.12,
+      0.42,
+      'hud-task-panel',
+    );
+    return panelHeight;
   }
 
   private drawModeDot(x: number, y: number, lit: boolean): void {

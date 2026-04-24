@@ -14,6 +14,7 @@ export type ShellbackClawSide = 'left' | 'right';
 export type ShellbackShellState = 'exposed' | 'shelled';
 export type ShellbackAttackState = 'idle' | 'windup' | 'strike' | 'recover';
 export type HexConquestState = 'active' | 'owned';
+export type WorldBuildingId = 'spire';
 export type HexTypeId =
   | 'dead'
   | 'restoring'
@@ -119,6 +120,7 @@ export interface HexCell {
   type: HexTypeId;
   ownerId?: string;
   buildable?: boolean;
+  buildingId?: WorldBuildingId;
   conquestState?: HexConquestState;
 }
 
@@ -148,6 +150,7 @@ export interface WorldBounds {
 
 export interface WorldRenderSnapshot {
   cells: HexCell[];
+  progressCells?: HexCell[] | null;
   bounds: WorldBounds;
   stage: number;
   fillLevel: number;
@@ -156,12 +159,14 @@ export interface WorldRenderSnapshot {
   focusX: number;
   focusY: number;
   conquest: ConquestProgressSnapshot | null;
+  objectiveTargetCoord?: HexCoord | null;
   /**
    * Monotonic counter that changes whenever the world cell set or cell-state (conquest,
    * ownership, etc.) mutates. Used by the renderer to fingerprint geometry-dependent
-   * caches (silhouette mask, ordered border edges) without hashing cells every frame.
+   * caches (e.g. ordered border edges) without hashing cells every frame.
    */
   generation: number;
+  progress: WorldProgressSnapshot | null;
 }
 
 export interface CameraImpulsePayload {
@@ -208,6 +213,32 @@ export interface ConquestProgressSnapshot {
   playerInside: boolean;
 }
 
+export interface WorldProgressObjectiveSnapshot {
+  id: string;
+  label: string;
+  current: number;
+  target: number;
+  completed: boolean;
+  showCounter: boolean;
+}
+
+export interface WorldProgressSnapshot {
+  profileId: string;
+  profileLabel: string;
+  stageId: string;
+  stageTitle: string;
+  stageSubtitle: string;
+  objectiveHeader: string;
+  stageIndex: number;
+  totalStages: number;
+  cycle: number;
+  completedObjectiveCount: number;
+  objectiveCount: number;
+  progress01: number;
+  isTutorial: boolean;
+  objectives: WorldProgressObjectiveSnapshot[];
+}
+
 export interface HudSnapshot {
   uiMode: UiMode;
   storedPickups: number;
@@ -229,6 +260,7 @@ export interface HudSnapshot {
   activeParasiteCount: number;
   parasiteAlertProgress: number;
   conquest: ConquestProgressSnapshot | null;
+  worldProgress?: WorldProgressSnapshot | null;
   stomachParticles: UiStomachParticleSnapshot[];
   stomachParasites: UiStomachParasiteSnapshot[];
   debug: boolean;
@@ -259,6 +291,13 @@ export type EvolutionResourceCounts = Record<PickupResourceId, number>;
 export interface EvolutionWorldActionAvailability {
   allowed: boolean;
   reason?: string;
+  cost?: ResourceCost;
+}
+
+export interface EvolutionWorldBuildingAvailability {
+  allowed: boolean;
+  reason?: string;
+  cost?: ResourceCost;
 }
 
 export interface EvolutionWorldActionResult {
@@ -269,6 +308,11 @@ export interface EvolutionWorldActionResult {
 export interface EvolutionWorldActionCallbacks {
   canStartConquest: (coord: HexCoord | null) => EvolutionWorldActionAvailability;
   startConquest: (coord: HexCoord) => EvolutionWorldActionResult;
+  canBuild: (
+    buildingId: WorldBuildingId,
+    coord: HexCoord | null,
+  ) => EvolutionWorldBuildingAvailability;
+  build: (buildingId: WorldBuildingId, coord: HexCoord) => EvolutionWorldActionResult;
 }
 
 /** Wired from GameScene so the evolution overlay can refresh state and buy segments with biomass. */

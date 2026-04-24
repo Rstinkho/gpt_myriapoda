@@ -19,11 +19,13 @@ import {
   getEvolutionSegmentCardSideLength,
   getEvolutionWorldActionsViewLayout,
   getEvolutionWorldBuildingsViewLayout,
+  getEvolutionWorldProgressPanelBounds,
   getEvolutionWorldSideContentRect,
 } from '@/evolution/evolutionLayout';
 import { EvolutionMyriapodaPreview } from '@/evolution/EvolutionMyriapodaPreview';
 import { EvolutionWorldActionCards } from '@/evolution/EvolutionWorldActionCards';
 import { EvolutionWorldBuildingsPanel } from '@/evolution/EvolutionWorldBuildingsPanel';
+import { EvolutionWorldProgressPanel } from '@/evolution/EvolutionWorldProgressPanel';
 import { EvolutionWorldView } from '@/evolution/EvolutionWorldView';
 import { closeEvolutionOverlay } from '@/evolution/overlayLifecycle';
 import { getPickupDefinition } from '@/entities/pickups/PickupRegistry';
@@ -32,7 +34,9 @@ import type {
   EvolutionSection,
   EvolutionSnapshot,
   EvolutionWorldActionAvailability,
+  EvolutionWorldBuildingAvailability,
   EvolutionWorldActionCallbacks,
+  WorldBuildingId,
   WorldRightPanelView,
 } from '@/game/types';
 import { getHexTypeDefinition } from '@/game/hexTypes';
@@ -71,6 +75,7 @@ export class EvolutionScene extends Phaser.Scene {
   private enhancementBranch?: EvolutionEnhancementBranch;
   private worldActionCards?: EvolutionWorldActionCards;
   private worldBuildingsPanel?: EvolutionWorldBuildingsPanel;
+  private worldProgressPanel?: EvolutionWorldProgressPanel;
   private worldActionsSubTab?: Phaser.GameObjects.Text;
   private worldBuildingsSubTab?: Phaser.GameObjects.Text;
   private worldActionsSubTabHit?: Phaser.GameObjects.Zone;
@@ -116,6 +121,7 @@ export class EvolutionScene extends Phaser.Scene {
   private worldActionCallbacks?: EvolutionWorldActionCallbacks;
   private armedWorldAction: EvolutionWorldActionId | null = null;
   private worldActionMessage = '';
+  private worldBuildingMessage = '';
   private tooltip?: EvolutionTooltip;
   private myriapodaActions?: EvolutionMyriapodaCallbacks;
   private segmentCard?: EvolutionSegmentCard;
@@ -139,6 +145,7 @@ export class EvolutionScene extends Phaser.Scene {
     this.closing = false;
     this.armedWorldAction = null;
     this.worldActionMessage = '';
+    this.worldBuildingMessage = '';
     this.resourceSlotBounds = evolutionToolbarResourceIds.map(() => new Phaser.Geom.Rectangle());
   }
 
@@ -157,7 +164,11 @@ export class EvolutionScene extends Phaser.Scene {
     this.worldActionCards = new EvolutionWorldActionCards(this, (actionId) =>
       this.handleWorldActionSelected(actionId),
     );
-    this.worldBuildingsPanel = new EvolutionWorldBuildingsPanel(this);
+    this.worldBuildingsPanel = new EvolutionWorldBuildingsPanel(this, (buildingId) =>
+      this.handleWorldBuildingSelected(buildingId as WorldBuildingId),
+    );
+    this.worldProgressPanel = new EvolutionWorldProgressPanel(this);
+    this.worldProgressPanel.setSnapshot(this.snapshot.world.progress);
 
     this.worldActionsSubTab = this.createWorldSubTabLabel('ACTIONS');
     this.worldBuildingsSubTab = this.createWorldSubTabLabel('BUILDINGS');
@@ -297,6 +308,7 @@ export class EvolutionScene extends Phaser.Scene {
     this.handleResize();
     this.updateSectionVisibility();
     this.refreshWorldActionCards();
+    this.refreshWorldBuildingCards();
   }
 
   getTooltip(): EvolutionTooltip | undefined {
@@ -401,9 +413,13 @@ export class EvolutionScene extends Phaser.Scene {
       this.armedWorldAction = null;
       this.worldActionMessage = '';
     }
+    if (view !== 'buildings') {
+      this.worldBuildingMessage = '';
+    }
     this.updateSectionVisibility();
     this.handleResize();
     this.refreshWorldActionCards();
+    this.refreshWorldBuildingCards();
     this.renderChrome();
     this.refreshContextPanel();
   }
@@ -414,11 +430,13 @@ export class EvolutionScene extends Phaser.Scene {
       this.hoveredWorldSubTab = null;
       this.armedWorldAction = null;
       this.worldActionMessage = '';
+      this.worldBuildingMessage = '';
     }
     this.tooltip?.hide();
     this.updateSectionVisibility();
     this.handleResize();
     this.refreshWorldActionCards();
+    this.refreshWorldBuildingCards();
     this.renderChrome();
     this.refreshContextPanel();
   }
@@ -435,6 +453,7 @@ export class EvolutionScene extends Phaser.Scene {
     this.choosePartColumnLabel?.setVisible(myriapodaVisible);
     this.worldActionCards?.setVisible(showWorldActions);
     this.worldBuildingsPanel?.setVisible(showWorldBuildings);
+    this.worldProgressPanel?.setVisible(worldVisible);
     this.worldActionsSubTab?.setVisible(worldVisible);
     this.worldBuildingsSubTab?.setVisible(worldVisible);
     this.worldActionsSubTabHit?.setVisible(worldVisible);
@@ -447,8 +466,33 @@ export class EvolutionScene extends Phaser.Scene {
       this.armedWorldAction === 'conquer'
         ? 'Pick a dead hex in the world map.'
         : '';
+    this.worldBuildingMessage = '';
     this.refreshWorldActionCards();
     this.refreshContextPanel();
+  }
+
+  private handleWorldBuildingSelected(buildingId: WorldBuildingId): void {
+    const coord = this.worldView?.getFocusedCell()?.coord ?? null;
+    if (!coord) {
+      this.worldBuildingMessage = 'Pin an owned buildable hex first.';
+      this.refreshWorldBuildingCards();
+      this.refreshContextPanel();
+      return;
+    }
+
+    const result = this.worldActionCallbacks?.build(buildingId, coord) ?? {
+      success: false,
+      reason: 'Unable to build here.',
+    };
+    if (!result.success) {
+      this.worldBuildingMessage = result.reason ?? 'Unable to build here.';
+      this.refreshWorldBuildingCards();
+      this.refreshContextPanel();
+      return;
+    }
+
+    this.worldBuildingMessage = 'Crystal Spire rooted.';
+    this.applyFreshSnapshotFromGame();
   }
 
   private handleSegmentPurchase(): void {
@@ -482,6 +526,8 @@ export class EvolutionScene extends Phaser.Scene {
       return;
     }
     this.snapshot = get();
+    this.worldView?.setSnapshot(this.snapshot.world);
+    this.worldProgressPanel?.setSnapshot(this.snapshot.world.progress);
     const resourceStripWidth =
       evolutionToolbarResourceIds.length * RESOURCE_ITEM_WIDTH +
       (evolutionToolbarResourceIds.length - 1) * RESOURCE_ITEM_GAP;
@@ -503,15 +549,18 @@ export class EvolutionScene extends Phaser.Scene {
     this.segmentPurchaseErrorTimer?.remove(false);
     this.segmentPurchaseErrorTimer = undefined;
     this.tooltip?.hide();
+    this.refreshWorldActionCards();
+    this.refreshWorldBuildingCards();
     this.refreshContextPanel();
     this.renderChrome();
   }
 
   private refreshWorldActionCards(): void {
+    const focusedCoord = this.worldView?.getFocusedCell()?.coord ?? null;
     const availability = new Map<EvolutionWorldActionId, EvolutionWorldActionAvailability>();
     availability.set(
       'conquer',
-      this.worldActionCallbacks?.canStartConquest(null) ?? {
+      this.worldActionCallbacks?.canStartConquest(focusedCoord) ?? {
         allowed: false,
         reason: 'World actions unavailable.',
       },
@@ -520,6 +569,19 @@ export class EvolutionScene extends Phaser.Scene {
     availability.set('seed', { allowed: false, reason: 'Locked' });
     availability.set('anchor', { allowed: false, reason: 'Locked' });
     this.worldActionCards?.setCardState(this.armedWorldAction, availability);
+  }
+
+  private refreshWorldBuildingCards(): void {
+    const focusedCoord = this.worldView?.getFocusedCell()?.coord ?? null;
+    const availability = new Map<string, EvolutionWorldBuildingAvailability>();
+    availability.set(
+      'spire',
+      this.worldActionCallbacks?.canBuild('spire', focusedCoord) ?? {
+        allowed: false,
+        reason: 'World actions unavailable.',
+      },
+    );
+    this.worldBuildingsPanel?.setCardState(availability);
   }
 
   private handleResize(): void {
@@ -603,6 +665,7 @@ export class EvolutionScene extends Phaser.Scene {
 
     this.preview?.layout(this.contentBounds);
     this.worldView?.layout(this.contentBounds);
+    this.worldProgressPanel?.layout(getEvolutionWorldProgressPanelBounds(this.contentBounds));
 
     const myriapodaPanel = getEvolutionMyriapodaPanelLayout(this.sideBounds);
     this.detailCardBounds.setTo(
@@ -694,6 +757,7 @@ export class EvolutionScene extends Phaser.Scene {
 
     this.footerHint?.setPosition(outerX + 32, outerY + outerHeight - 34);
     this.refreshWorldActionCards();
+    this.refreshWorldBuildingCards();
     this.renderChrome();
     this.refreshContextPanel();
   }
@@ -928,6 +992,8 @@ export class EvolutionScene extends Phaser.Scene {
           ? 'OWNED'
           : 'UNCLAIMED';
     this.worldBuildingsPanel?.setSelectedHexBuildable(buildable);
+    this.refreshWorldActionCards();
+    this.refreshWorldBuildingCards();
     if (this.worldBuildingsBounds.width > 0 && this.worldBuildingsBounds.height > 0) {
       this.worldBuildingsPanel?.layout(this.worldBuildingsBounds);
     }
@@ -938,6 +1004,8 @@ export class EvolutionScene extends Phaser.Scene {
     const showHexStats = this.worldRightPanel === 'actions';
     this.contextStats.setVisible(showHexStats);
     if (showHexStats) {
+      const actionHint = this.worldActionMessage ||
+        (this.armedWorldAction === 'conquer' ? 'Pick a dead hex.' : 'Select an action card.');
       this.contextStats.setText(
         [
           `HEX: ${focusedCell ? `${focusedCell.coord.q}, ${focusedCell.coord.r}` : 'None'}`,
@@ -946,16 +1014,19 @@ export class EvolutionScene extends Phaser.Scene {
           `BUILDABLE: ${focusedCell ? (buildable ? 'YES' : 'NO') : 'NO'}`,
           `WORLD STAGE: ${this.snapshot.world.stage}`,
           `FILL: ${this.snapshot.world.fillLevel}/${this.snapshot.world.fillThreshold}`,
-          `ACTION: ${this.worldActionMessage || (this.armedWorldAction === 'conquer' ? 'Pick a dead hex.' : 'Select an action card.')}`,
+          `ACTION: ${actionHint}`,
         ].join('\n'),
       );
       this.contextStats.setPosition(this.worldStatsBounds.x + 18, this.worldStatsBounds.y + 20);
       this.contextStats.setWordWrapWidth(this.worldStatsBounds.width - 36);
     }
+    const buildHint = this.worldBuildingMessage || 'PIN AN OWNED HEX, THEN CLICK A BUILDING CARD';
     this.footerHint.setText(
-      this.armedWorldAction === 'conquer'
-        ? 'CLICK A DEAD HEX TO START CONQUEST  |  WHEEL TO ZOOM  |  DRAG TO PAN'
-        : 'WHEEL TO ZOOM  |  DRAG TO PAN  |  CLICK TO PIN  |  E / ESC CLOSE',
+      this.worldRightPanel === 'buildings'
+        ? `${buildHint}  |  WHEEL TO ZOOM  |  DRAG TO PAN`
+        : this.armedWorldAction === 'conquer'
+          ? 'CLICK A DEAD HEX TO START CONQUEST  |  WHEEL TO ZOOM  |  DRAG TO PAN'
+          : 'WHEEL TO ZOOM  |  DRAG TO PAN  |  CLICK TO PIN  |  E / ESC CLOSE',
     );
     this.renderChrome();
   }
@@ -1074,6 +1145,7 @@ export class EvolutionScene extends Phaser.Scene {
     this.segmentCard?.destroy();
     this.worldActionCards?.destroy();
     this.worldBuildingsPanel?.destroy();
+    this.worldProgressPanel?.destroy();
     this.tooltip?.destroy();
     this.tooltip = undefined;
     this.worldActionsSubTab?.destroy();
@@ -1111,6 +1183,7 @@ export class EvolutionScene extends Phaser.Scene {
     this.myriapodaActions = undefined;
     this.worldActionCards = undefined;
     this.worldBuildingsPanel = undefined;
+    this.worldProgressPanel = undefined;
     this.worldActionsSubTab = undefined;
     this.worldBuildingsSubTab = undefined;
     this.worldActionsSubTabHit = undefined;
@@ -1139,5 +1212,6 @@ export class EvolutionScene extends Phaser.Scene {
     this.worldActionCallbacks = undefined;
     this.armedWorldAction = null;
     this.worldActionMessage = '';
+    this.worldBuildingMessage = '';
   }
 }

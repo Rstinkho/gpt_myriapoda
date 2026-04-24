@@ -14,10 +14,12 @@ import {
   type EvolutionActionCardLayout,
   type RectLike,
 } from '@/evolution/evolutionLayout';
+import type { ResourceCost } from '@/game/types';
 
 interface ActionAvailability {
   allowed: boolean;
   reason?: string;
+  cost?: ResourceCost;
 }
 
 const COST_ICON_SIZE = 14;
@@ -93,6 +95,7 @@ export class EvolutionWorldActionCards {
       const isActive = this.activeActionId === card.id;
       const availability = this.availabilityById.get(card.id) ?? { allowed: !card.locked };
       const isAvailable = !card.locked && availability.allowed;
+      const displayCost = availability.cost ?? card.cost;
 
       cardG.clear();
       iconG.clear();
@@ -135,7 +138,7 @@ export class EvolutionWorldActionCards {
       this.drawPremiumIcon(iconG, iconCenterX, iconCenterY, card.icon, iconRadius, isAvailable);
 
       // Cost row sits at the bottom of the card; full text moves to tooltip.
-      this.positionCostRow(index, card, iconCenterX, rect.y + rect.height * 0.84, isAvailable);
+      this.positionCostRow(index, displayCost, iconCenterX, rect.y + rect.height * 0.84, isAvailable);
 
       zone.setPosition(rect.x + rect.width * 0.5, rect.y + rect.height * 0.5);
       zone.setSize(rect.width, rect.height);
@@ -158,7 +161,7 @@ export class EvolutionWorldActionCards {
         tooltip?.show({
           title: card.title,
           description: card.description,
-          cost: card.cost,
+          cost: displayCost,
           meta,
           anchorRect: rectCopy,
         });
@@ -183,12 +186,12 @@ export class EvolutionWorldActionCards {
 
   private positionCostRow(
     index: number,
-    card: EvolutionActionCardLayout,
+    cost: ResourceCost | undefined,
     centerX: number,
     rowY: number,
     isAvailable: boolean,
   ): void {
-    const entries = card.cost ? formatResourceCostIconPairs(card.cost) : [];
+    const entries = cost ? formatResourceCostIconPairs(cost) : [];
     const icons = this.costIcons[index];
     const amounts = this.costAmountLabels[index];
     const alpha = isAvailable ? 1 : 0.5;

@@ -3,7 +3,6 @@ import { tuning } from '@/game/tuning';
 import { getHexTypeDefinition } from '@/game/hexTypes';
 import type { ExpansionEvent, HexCell, WorldRenderSnapshot } from '@/game/types';
 import { createCoordKey } from '@/entities/world/WorldExpansion';
-import { GraphicsMaskController } from '@/phaser/GraphicsMaskController';
 import {
   type BorderEdge,
   type BorderPoint,
@@ -43,6 +42,7 @@ const worldRevealGlowOffset = -0.22;
 const worldBorderShadowOffset = -0.08;
 /** Hex outlines sit above tile fills but below player, plants, pickups, and enemies (see GameScene ~4.8+, Pickup 6, plants 7, jellyfish 8, head 12). */
 const worldCellStrokeOffset = 3.5;
+const worldStructureOffset = 4.1;
 const worldConquestHudOffset = 8.2;
 const worldRevealGlowRadiusPadding = 18;
 const worldRevealGlowAlpha = 0.14;
@@ -52,9 +52,9 @@ export class WorldRenderer {
   private readonly revealGlowGraphics: Phaser.GameObjects.Graphics;
   private readonly cellGraphics: Phaser.GameObjects.Graphics;
   private readonly cellStrokeGraphics: Phaser.GameObjects.Graphics;
+  private readonly structureGraphics: Phaser.GameObjects.Graphics;
   private readonly borderShadowGraphics: Phaser.GameObjects.Graphics;
   private readonly conquestHudGraphics: Phaser.GameObjects.Graphics;
-  private readonly worldBorderMask: GraphicsMaskController;
   private fillPulse = 0;
   private displayFillProgress = 0;
   private pendingExpansion: PendingExpansion | null = null;
@@ -76,20 +76,9 @@ export class WorldRenderer {
    */
   private cachedOrderedEdges: BorderEdge[] | null = null;
   private cachedOrderedEdgesFingerprint = '';
-  /** Cached silhouette mask fingerprint — shares the same generation semantics. */
-  private silhouetteMaskFingerprint = '';
   /**
-   * Fingerprint for the border-shadow graphics layer (rail + progress arc + tip orb).
-   * When the fingerprint doesn't change, we skip the `clear()` + redraw entirely. This
-   * is crucial because `borderShadowGraphics` has a bloom filter attached — every
-   * `clear()`/redraw re-uploads geometry and forces the filter to re-convolve the
-   * whole layer, which read as per-frame blinking/re-rendering on camera moves even
-   * though the border shape itself hadn't changed.
-   *
-   * The inputs to this fingerprint are *only* the things that visually change the
-   * border: the world shape (generation), the animated fill progress (quantized so
-   * the per-frame LERP-towards-target noise doesn't bust the cache), and the
-   * expansion animation state.
+   * Fingerprint for the border graphics layer (rail + progress arc + tip orb).
+   * When unchanged, skip `clear()` + redraw to avoid redundant work each frame.
    */
   private borderLayerFingerprint = '';
 
@@ -106,29 +95,17 @@ export class WorldRenderer {
     this.cellStrokeGraphics.setDepth(base + worldCellStrokeOffset);
     this.cellStrokeGraphics.setScrollFactor(1);
 
+    this.structureGraphics = scene.add.graphics();
+    this.structureGraphics.setDepth(base + worldStructureOffset);
+    this.structureGraphics.setScrollFactor(1);
+
     this.borderShadowGraphics = scene.add.graphics();
     this.borderShadowGraphics.setDepth(base + worldBorderShadowOffset);
     this.borderShadowGraphics.setScrollFactor(1);
-    this.borderShadowGraphics.enableFilters();
 
     this.conquestHudGraphics = scene.add.graphics();
     this.conquestHudGraphics.setDepth(base + worldConquestHudOffset);
     this.conquestHudGraphics.setScrollFactor(1);
-
-    Phaser.Actions.AddEffectBloom(this.borderShadowGraphics, {
-      threshold: tuning.worldBorderBloomThreshold,
-      blurRadius: tuning.worldBorderBloomRadius,
-      blurSteps: tuning.worldBorderBloomSteps,
-      blendAmount: tuning.worldBorderBloomAmount,
-      useInternal: true,
-    });
-
-    this.worldBorderMask = new GraphicsMaskController(scene, {
-      viewCamera: scene.cameras.main,
-      viewTransform: 'world',
-      invert: true,
-    });
-    this.worldBorderMask.attach(this.borderShadowGraphics);
   }
 
   addFillPulse(amount: number): void {
@@ -152,10 +129,10 @@ export class WorldRenderer {
   }
 
   destroy(): void {
-    this.worldBorderMask.destroy();
     this.revealGlowGraphics.destroy();
     this.cellGraphics.destroy();
     this.cellStrokeGraphics.destroy();
+    this.structureGraphics.destroy();
     this.borderShadowGraphics.destroy();
     this.conquestHudGraphics.destroy();
   }
@@ -176,19 +153,19 @@ export class WorldRenderer {
   update(snapshot: WorldRenderSnapshot): void {
     this.elapsed += tuning.fixedStepSeconds;
     this.fillPulse = Math.max(0, this.fillPulse - tuning.fixedStepSeconds * tuning.worldFillPulseDecay);
-    // Note: `borderShadowGraphics` is intentionally *not* cleared here. It is
-    // cleared below only when the border layer fingerprint changes. Keeping it
-    // stable between frames avoids the bloom filter re-convolving every frame,
-    // which was presenting as a constant "re-render" of the hex outline during
-    // normal movement/camera motion even though the border shape was static.
+    // Note: `borderShadowGraphics` is cleared only when the border fingerprint changes.
     this.cellGraphics.clear();
     this.cellStrokeGraphics.clear();
+    this.structureGraphics.clear();
     this.conquestHudGraphics.clear();
     this.revealGlowGraphics.clear();
 
     const actualProgress = Math.max(0, Math.min(1, snapshot.fillLevel / Math.max(1, snapshot.fillThreshold)));
     let animation = sampleStageAnimation(1);
     let visibleCells = snapshot.cells;
+    const progressCells = snapshot.progressCells && snapshot.progressCells.length > 0
+      ? snapshot.progressCells
+      : snapshot.cells;
 
     if (this.pendingExpansion) {
       this.pendingExpansion.elapsed = Math.min(
@@ -219,6 +196,7 @@ export class WorldRenderer {
     const silhouetteCells = this.createRenderCells(snapshot.cells, snapshot, animation, 'full');
     const revealCells = this.createRenderCells(snapshot.cells, snapshot, animation, 'revealed');
     const visibleRenderCells = this.createRenderCells(visibleCells, snapshot, animation, 'revealed');
+    const progressRenderCells = this.createRenderCells(progressCells, snapshot, animation, 'full');
 
     const suppressHeavyFx = this.pendingExpansion !== null;
     const expansionCyanRims = this.pendingExpansion !== null;
@@ -237,6 +215,7 @@ export class WorldRenderer {
       visibleRenderCells,
       snapshot.hexSize,
     );
+    this.renderStructures(this.structureGraphics, visibleRenderCells, snapshot.hexSize);
     if (expansionCyanRims) {
       const rimAlpha = animation.cyanPrime !== undefined ? animation.cyanPrime : 1;
       this.renderExpansionCyanPrimeOverlays(
@@ -246,18 +225,8 @@ export class WorldRenderer {
         rimAlpha,
       );
     }
-    // Silhouette mask is fingerprinted by `generation` and rebuilds only on world
-    // mutation; it uses the *raw* (unrotated) cell positions so the mask stays
-    // valid for the whole expansion animation even as cells rotate inside it.
-    this.drawWorldSilhouetteMask(snapshot.cells, snapshot.hexSize, snapshot.generation);
-
-    // Border layer is redrawn *only* when something visually relevant changed:
-    //   - World shape mutated (generation bump).
-    //   - Animated fill progress crossed a visible threshold (quantized).
-    //   - An expansion animation is in progress (border tracks the rotation).
-    // Camera pans, player movement, and the `fillPulse` decay all leave this
-    // fingerprint unchanged, so the bloom-filtered graphics keeps its previous
-    // frame intact — no clear, no re-upload, no filter re-convolution.
+    // Border layer is redrawn only when something visually relevant changed:
+    // world shape (generation), quantized fill progress, or expansion animation.
     const borderCacheSalt = this.pendingExpansion
       ? `exp:${this.pendingExpansion.elapsed.toFixed(3)}`
       : 'static';
@@ -268,12 +237,13 @@ export class WorldRenderer {
       this.borderShadowGraphics.clear();
       this.renderBorder(
         this.borderShadowGraphics,
-        silhouetteCells,
+        progressRenderCells,
         snapshot.hexSize,
         snapshot.generation,
         borderCacheSalt,
       );
     }
+    this.renderObjectiveTarget(this.conquestHudGraphics, visibleRenderCells, snapshot);
     this.renderConquestProgressBar(this.conquestHudGraphics, visibleRenderCells, snapshot);
 
     if (this.pendingExpansion && this.getExpansionProgress() >= 1) {
@@ -467,6 +437,58 @@ export class WorldRenderer {
     );
   }
 
+  private renderObjectiveTarget(
+    graphics: Phaser.GameObjects.Graphics,
+    cells: RenderCell[],
+    snapshot: WorldRenderSnapshot,
+  ): void {
+    if (!snapshot.objectiveTargetCoord) {
+      return;
+    }
+
+    const targetCell = cells.find(
+      (cell) =>
+        cell.coord.q === snapshot.objectiveTargetCoord?.q &&
+        cell.coord.r === snapshot.objectiveTargetCoord?.r,
+    );
+    if (!targetCell) {
+      return;
+    }
+
+    const pulse = 0.5 + 0.5 * Math.sin(this.elapsed * 4.6);
+    const radius = Math.max(10, (snapshot.hexSize - tuning.worldCellInset) * targetCell.scale * 0.92);
+    const ringRadius = radius * 1.08 + pulse * 8;
+    const beaconY = targetCell.centerY - ringRadius - 16 - pulse * 6;
+
+    graphics.fillStyle(0xf7f1aa, 0.08 + pulse * 0.08);
+    graphics.fillCircle(targetCell.centerX, targetCell.centerY, ringRadius + 8);
+    graphics.lineStyle(3.2, 0x332b13, 0.54);
+    graphics.strokeCircle(targetCell.centerX, targetCell.centerY, ringRadius);
+    graphics.lineStyle(2.1, 0xf7e897, 0.86);
+    graphics.strokeCircle(targetCell.centerX, targetCell.centerY, ringRadius - 2);
+    graphics.lineStyle(1.2, 0xfffdf1, 0.94);
+    graphics.strokeCircle(targetCell.centerX, targetCell.centerY, Math.max(8, radius * 0.92));
+
+    graphics.fillStyle(0xfff7cf, 0.94);
+    graphics.fillTriangle(
+      targetCell.centerX,
+      beaconY,
+      targetCell.centerX - 9,
+      beaconY - 14,
+      targetCell.centerX + 9,
+      beaconY - 14,
+    );
+    graphics.lineStyle(1.4, 0x3c3217, 0.6);
+    graphics.strokeTriangle(
+      targetCell.centerX,
+      beaconY,
+      targetCell.centerX - 9,
+      beaconY - 14,
+      targetCell.centerX + 9,
+      beaconY - 14,
+    );
+  }
+
   private createRenderCells(
     cells: HexCell[],
     snapshot: WorldRenderSnapshot,
@@ -571,6 +593,54 @@ export class WorldRenderer {
     }
   }
 
+  private renderStructures(
+    graphics: Phaser.GameObjects.Graphics,
+    renderCells: RenderCell[],
+    hexSize: number,
+  ): void {
+    for (const cell of renderCells) {
+      if (!cell.buildingId) {
+        continue;
+      }
+
+      const radius = Math.max(8, (hexSize - tuning.worldCellInset) * cell.scale * 0.28);
+      if (cell.buildingId === 'spire') {
+        graphics.fillStyle(0xf8eab0, 0.12 * cell.alpha);
+        graphics.fillCircle(cell.centerX, cell.centerY, radius * 1.75);
+        graphics.lineStyle(2.2, 0xfff0cc, 0.56 * cell.alpha);
+        graphics.strokeCircle(cell.centerX, cell.centerY, radius * 1.06);
+
+        graphics.fillStyle(0xf2e1a0, 0.9 * cell.alpha);
+        graphics.fillTriangle(
+          cell.centerX,
+          cell.centerY - radius * 1.18,
+          cell.centerX - radius * 0.42,
+          cell.centerY + radius * 0.56,
+          cell.centerX + radius * 0.42,
+          cell.centerY + radius * 0.56,
+        );
+        graphics.lineStyle(1.6, 0x1f1b10, 0.78 * cell.alpha);
+        graphics.strokeTriangle(
+          cell.centerX,
+          cell.centerY - radius * 1.18,
+          cell.centerX - radius * 0.42,
+          cell.centerY + radius * 0.56,
+          cell.centerX + radius * 0.42,
+          cell.centerY + radius * 0.56,
+        );
+        graphics.fillStyle(0xf0d498, 0.86 * cell.alpha);
+        graphics.fillRect(
+          cell.centerX - radius * 0.12,
+          cell.centerY + radius * 0.48,
+          radius * 0.24,
+          radius * 0.62,
+        );
+        graphics.fillStyle(0xbdf6ff, 0.92 * cell.alpha);
+        graphics.fillCircle(cell.centerX, cell.centerY - radius * 0.08, radius * 0.18);
+      }
+    }
+  }
+
   /** Thick stacked cyan rims on every cell for the full stage-expansion animation (alpha ramps during cyan-prime segment). */
   private renderExpansionCyanPrimeOverlays(
     graphics: Phaser.GameObjects.Graphics,
@@ -579,7 +649,6 @@ export class WorldRenderer {
     cyanPrime: number,
   ): void {
     const a = Math.max(0, Math.min(1, cyanPrime));
-    const glowW = (tuning.worldBorderGlowWidth * 1.1) / 2;
     const outerW = (tuning.worldBorderProgressWidth * 1.15) / 2;
     const innerW = outerW * 0.55;
 
@@ -599,7 +668,7 @@ export class WorldRenderer {
         const bx = points[(side + 1) % 6].x;
         const by = points[(side + 1) % 6].y;
 
-        graphics.lineStyle(glowW + outerW * 0.5, 0x0a5d77, 0.4 * a * lineAlpha);
+        graphics.lineStyle(outerW * 0.5, 0x0a5d77, 0.4 * a * lineAlpha);
         graphics.lineBetween(ax, ay, bx, by);
         graphics.lineStyle(outerW, 0x39d7f2, 0.88 * a * lineAlpha);
         graphics.lineBetween(ax, ay, bx, by);
@@ -607,42 +676,6 @@ export class WorldRenderer {
         graphics.lineBetween(ax, ay, bx, by);
       }
     }
-  }
-
-  /**
-   * Builds an inverted silhouette mask covering every world hex. The border-shadow filter
-   * uses this to clip its bloom to the outside of the world shape. Fingerprinted by the
-   * world's `generation` counter + hexSize so the mask rebuilds exactly once per world
-   * mutation (expansion, conquest state change, ownership change).
-   *
-   * Guarded on `cells.length > 0` so the initial empty render (before WorldSystem has
-   * populated its snapshot) doesn't write an empty mask that would leave the bloom
-   * unclipped for a frame.
-   */
-  private drawWorldSilhouetteMask(cells: HexCell[], hexSize: number, generation: number): void {
-    if (cells.length === 0) {
-      return;
-    }
-
-    const fingerprint = `${generation}:${hexSize.toFixed(2)}`;
-    if (fingerprint === this.silhouetteMaskFingerprint) {
-      return;
-    }
-    this.silhouetteMaskFingerprint = fingerprint;
-
-    const borderRadius = Math.max(4, hexSize);
-    this.worldBorderMask.clear();
-    this.worldBorderMask.drawMask((g) => {
-      for (const cell of cells) {
-        const pts = createRegularHexPoints(
-          cell.centerX,
-          cell.centerY,
-          borderRadius,
-          this.hexPointsScratch,
-        );
-        g.fillPoints(pts as Phaser.Math.Vector2[], true);
-      }
-    });
   }
 
   private renderBorder(
@@ -675,15 +708,11 @@ export class WorldRenderer {
     // Previously this included `+ this.fillPulse * 1.2`, which caused the border
     // to redraw every frame while the pulse decayed after every pickup (and
     // continuously during expansion). The pickup "flash" feedback now lives on
-    // the cell layer (via `fillPulse` influencing cell stroke width + alpha);
-    // the outer border stays at a constant width so its bloom-filtered layer
-    // can stay static between genuine fill-progress / stage changes.
+    // the cell layer (via `fillPulse` influencing cell stroke width + alpha).
     const progressOuterWidth = tuning.worldBorderProgressWidth;
     const progressInnerWidth = progressOuterWidth * 0.56;
 
-    // Rail collapsed from 4 passes to 2: dark-underlay + bright core. The bloom filter
-    // on this layer generates the outer halo, so the prior halo/cyan-ring passes were
-    // largely redundant overdraw under the glow.
+    // Rail: dark underlay + bright core.
     this.drawJoinedEdges(
       graphics,
       orderedEdges,
@@ -708,13 +737,6 @@ export class WorldRenderer {
       return startPoint;
     }
 
-    this.drawJoinedEdges(
-      graphics,
-      progressEdges,
-      progressOuterWidth + tuning.worldBorderGlowWidth,
-      0x0a5d77,
-      0.44,
-    );
     this.drawJoinedEdges(graphics, progressEdges, progressOuterWidth, 0x39d7f2, 0.78);
     this.drawJoinedEdges(
       graphics,

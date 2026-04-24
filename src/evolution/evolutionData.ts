@@ -1,4 +1,5 @@
 import { textureKeys } from '@/game/assets';
+import { tuning } from '@/game/tuning';
 import type {
   EvolutionPartId,
   PickupResourceId,
@@ -35,6 +36,8 @@ export interface EvolutionWorldBuildingDefinition {
   description: string;
   cost: ResourceCost;
   requirement: string;
+  locked: boolean;
+  textureKey: string;
 }
 
 export interface ResourceCostIconEntry {
@@ -355,7 +358,7 @@ export const evolutionWorldActionDefs: readonly EvolutionWorldActionDefinition[]
     title: 'Conquer hex',
     description: 'Claim the selected hex. The myriapoda must linger inside while converting it.',
     icon: 'conquer',
-    cost: { biomass: 30 },
+    cost: { biomass: tuning.conquerBiomassCost },
     locked: false,
   },
   {
@@ -385,9 +388,11 @@ export const evolutionWorldBuildingDefs: readonly EvolutionWorldBuildingDefiniti
   {
     id: 'spire',
     name: 'Crystal Spire',
-    description: 'Focuses ambient bio-energy into a slow stream of structural cells.',
-    cost: { biomass: 20, tissue: 4 },
+    description: 'The colony heart. Establishes a permanent foothold and anchors future systems.',
+    cost: { biomass: tuning.crystalSpireBiomassCost },
     requirement: 'Owned hex',
+    locked: false,
+    textureKey: textureKeys.evolutionBuildings[0],
   },
   {
     id: 'dome',
@@ -395,6 +400,8 @@ export const evolutionWorldBuildingDefs: readonly EvolutionWorldBuildingDefiniti
     description: 'A sealed dome that shelters tissue growth, boosting passive regeneration.',
     cost: { biomass: 24, tissue: 6 },
     requirement: 'Owned hex',
+    locked: true,
+    textureKey: textureKeys.evolutionBuildings[1],
   },
   {
     id: 'foundry',
@@ -402,6 +409,8 @@ export const evolutionWorldBuildingDefs: readonly EvolutionWorldBuildingDefiniti
     description: 'Refines raw biomass into tissue, trading throughput for higher-tier matter.',
     cost: { biomass: 28, tissue: 8 },
     requirement: 'Owned hex',
+    locked: true,
+    textureKey: textureKeys.evolutionBuildings[2],
   },
   {
     id: 'relay',
@@ -409,6 +418,8 @@ export const evolutionWorldBuildingDefs: readonly EvolutionWorldBuildingDefiniti
     description: 'Relays sensory data across owned hexes, extending the alert network.',
     cost: { biomass: 18, tissue: 5 },
     requirement: 'Owned hex',
+    locked: true,
+    textureKey: textureKeys.evolutionBuildings[3],
   },
   {
     id: 'bastion',
@@ -416,6 +427,8 @@ export const evolutionWorldBuildingDefs: readonly EvolutionWorldBuildingDefiniti
     description: 'Fortifies an owned hex, slowing enemy incursions and contested decay.',
     cost: { biomass: 26, tissue: 8, structuralCell: 1 },
     requirement: 'Owned hex',
+    locked: true,
+    textureKey: textureKeys.evolutionBuildings[4],
   },
   {
     id: 'silo',
@@ -423,6 +436,8 @@ export const evolutionWorldBuildingDefs: readonly EvolutionWorldBuildingDefiniti
     description: 'Stores surplus biomass, raising the colony\'s maximum reserves.',
     cost: { biomass: 22, tissue: 6 },
     requirement: 'Owned hex',
+    locked: true,
+    textureKey: textureKeys.evolutionBuildings[5],
   },
   {
     id: 'spore',
@@ -430,6 +445,8 @@ export const evolutionWorldBuildingDefs: readonly EvolutionWorldBuildingDefiniti
     description: 'Releases spores that interfere with parasite spawning in adjacent hexes.',
     cost: { biomass: 20, tissue: 7 },
     requirement: 'Owned hex',
+    locked: true,
+    textureKey: textureKeys.evolutionBuildings[6],
   },
   {
     id: 'prism',
@@ -437,5 +454,11 @@ export const evolutionWorldBuildingDefs: readonly EvolutionWorldBuildingDefiniti
     description: 'Opens a prismatic gate that transmits structural cells between built hexes.',
     cost: { biomass: 30, tissue: 10, structuralCell: 2 },
     requirement: 'Owned hex',
+    locked: true,
+    textureKey: textureKeys.evolutionBuildings[7],
   },
 ] as const;
+
+export function getEvolutionWorldBuildingDefinition(id: string): EvolutionWorldBuildingDefinition | null {
+  return evolutionWorldBuildingDefs.find((definition) => definition.id === id) ?? null;
+}

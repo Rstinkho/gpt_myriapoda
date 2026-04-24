@@ -1,4 +1,10 @@
-import type { ExpansionEvent, HexCell, HexCoord, WorldBounds } from '@/game/types';
+import type {
+  ExpansionEvent,
+  HexCell,
+  HexCoord,
+  WorldBounds,
+  WorldBuildingId,
+} from '@/game/types';
 import { tuning } from '@/game/tuning';
 import { HexGrid } from '@/entities/world/HexGrid';
 import {
@@ -8,6 +14,13 @@ import {
 } from '@/entities/world/WorldExpansion';
 import { computeWorldBounds } from '@/systems/cameraMath';
 import { randomInt } from '@/utils/random';
+
+export interface HexWorldState {
+  stage: number;
+  fillLevel: number;
+  fillThreshold: number;
+  cells: HexCell[];
+}
 
 export class HexWorld {
   readonly grid: HexGrid;
@@ -58,6 +71,10 @@ export class HexWorld {
     return this.cellsInternal.find((cell) => cell.ownerId === ownerId) ?? null;
   }
 
+  getOwnedCells(ownerId = 'player'): HexCell[] {
+    return this.cellsInternal.filter((cell) => cell.ownerId === ownerId);
+  }
+
   hasOwnedCell(ownerId = 'player'): boolean {
     return this.getOwnedCell(ownerId) !== null;
   }
@@ -66,7 +83,7 @@ export class HexWorld {
     return this.cellsInternal.find((cell) => cell.conquestState === 'active') ?? null;
   }
 
-  canConquerCell(coord: HexCoord, ownerId = 'player'): boolean {
+  canConquerCell(coord: HexCoord, _ownerId = 'player'): boolean {
     const cell = this.findCell(coord);
     if (!cell) {
       return false;
@@ -76,8 +93,8 @@ export class HexWorld {
       cell.type === 'dead' &&
       !cell.ownerId &&
       cell.conquestState !== 'active' &&
-      !this.getActiveConquestCell() &&
-      !this.hasOwnedCell(ownerId)
+      !cell.buildingId &&
+      !this.getActiveConquestCell()
     );
   }
 
@@ -123,11 +140,66 @@ export class HexWorld {
     return target;
   }
 
-  addFill(amount: number): ExpansionEvent | null {
+  hasBuilding(buildingId: WorldBuildingId): boolean {
+    return this.cellsInternal.some((cell) => cell.buildingId === buildingId);
+  }
+
+  canBuild(coord: HexCoord, buildingId: WorldBuildingId, ownerId = 'player'): boolean {
+    const target = this.findCell(coord);
+    if (!target) {
+      return false;
+    }
+
+    return (
+      target.ownerId === ownerId &&
+      target.buildable === true &&
+      !target.buildingId &&
+      !this.hasBuilding(buildingId)
+    );
+  }
+
+  placeBuilding(coord: HexCoord, buildingId: WorldBuildingId, ownerId = 'player'): HexCell | null {
+    if (!this.canBuild(coord, buildingId, ownerId)) {
+      return null;
+    }
+
+    const target = this.findCell(coord);
+    if (!target) {
+      return null;
+    }
+
+    target.buildingId = buildingId;
+    target.buildable = false;
+    this.generationCounter += 1;
+    return target;
+  }
+
+  replaceState(state: HexWorldState): void {
+    this.stage = state.stage;
+    this.fillLevel = state.fillLevel;
+    this.fillThreshold = state.fillThreshold;
+    this.cellsInternal = state.cells.map((cell) => ({
+      coord: { ...cell.coord },
+      centerX: cell.centerX,
+      centerY: cell.centerY,
+      unlocked: cell.unlocked,
+      type: cell.type,
+      ownerId: cell.ownerId,
+      buildable: cell.buildable,
+      buildingId: cell.buildingId,
+      conquestState: cell.conquestState,
+    }));
+    this.bounds = this.computeBounds();
+    this.generationCounter += 1;
+  }
+
+  addFill(amount: number, frontierSourceCells: HexCell[] = this.cellsInternal): ExpansionEvent | null {
     this.fillLevel += amount;
     if (!canExpand(this.fillLevel, this.fillThreshold)) {
       return null;
     }
+
+    const sourceCells = frontierSourceCells.length > 0 ? frontierSourceCells : this.cellsInternal;
 
     const expanded = applyExpansion(
       this.grid,
@@ -139,6 +211,7 @@ export class HexWorld {
       },
       tuning.expansionThresholdStep,
       this.chooseIndex,
+      sourceCells,
     );
     this.assignStrategicCells(expanded.event.newCells, expanded.stage);
 

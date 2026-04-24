@@ -1,5 +1,7 @@
 import * as Phaser from 'phaser';
 import type { HexCell, WorldRenderSnapshot } from '@/game/types';
+import { getEvolutionWorldBuildingDefinition } from '@/evolution/evolutionData';
+import { textureKeys } from '@/game/assets';
 import { tuning } from '@/game/tuning';
 import { getEvolutionStrategicHexStyle } from '@/evolution/evolutionVisuals';
 import {
@@ -27,6 +29,7 @@ export class EvolutionWorldView {
   private readonly scene: Phaser.Scene;
   private readonly cellGraphics: Phaser.GameObjects.Graphics;
   private readonly glowGraphics: Phaser.GameObjects.Graphics;
+  private readonly buildingIcons: Phaser.GameObjects.Image[] = [];
   private visible = false;
   private snapshot?: WorldRenderSnapshot;
   private viewport: EvolutionWorldViewport = { x: 0, y: 0, width: 0, height: 0 };
@@ -55,6 +58,9 @@ export class EvolutionWorldView {
 
   setVisible(visible: boolean): void {
     this.visible = visible;
+    for (const icon of this.buildingIcons) {
+      icon.setVisible(visible && icon.visible);
+    }
     if (!visible) {
       this.clear();
     }
@@ -69,10 +75,29 @@ export class EvolutionWorldView {
     this.render();
   }
 
+  setSnapshot(snapshot: WorldRenderSnapshot): void {
+    const hoveredKey = this.hoveredCell
+      ? `${this.hoveredCell.coord.q},${this.hoveredCell.coord.r}`
+      : null;
+    const pinnedKey = this.pinnedCell
+      ? `${this.pinnedCell.coord.q},${this.pinnedCell.coord.r}`
+      : null;
+    this.snapshot = snapshot;
+    this.hoveredCell = hoveredKey
+      ? snapshot.cells.find((cell) => `${cell.coord.q},${cell.coord.r}` === hoveredKey) ?? null
+      : null;
+    this.pinnedCell = pinnedKey
+      ? snapshot.cells.find((cell) => `${cell.coord.q},${cell.coord.r}` === pinnedKey) ?? null
+      : null;
+  }
+
   destroy(): void {
     this.clear();
     this.cellGraphics.destroy();
     this.glowGraphics.destroy();
+    for (const icon of this.buildingIcons) {
+      icon.destroy();
+    }
   }
 
   containsPoint(x: number, y: number): boolean {
@@ -306,6 +331,9 @@ export class EvolutionWorldView {
         this.glowGraphics.strokePoints(points as Phaser.Math.Vector2[], true, true);
       }
     }
+
+    this.renderObjectiveTarget();
+    this.renderBuildings();
   }
 
   private renderTerritoryOverlay(
@@ -401,5 +429,109 @@ export class EvolutionWorldView {
   private clear(): void {
     this.cellGraphics.clear();
     this.glowGraphics.clear();
+    for (const icon of this.buildingIcons) {
+      icon.setVisible(false);
+    }
+  }
+
+  private renderBuildings(): void {
+    if (!this.snapshot) {
+      return;
+    }
+
+    const builtCells = this.snapshot.cells.filter((cell) => !!cell.buildingId);
+    while (this.buildingIcons.length < builtCells.length) {
+      this.buildingIcons.push(
+        this.scene.add
+          .image(0, 0, textureKeys.evolutionBuildings[0])
+          .setDepth(5.4)
+          .setVisible(false),
+      );
+    }
+
+    builtCells.forEach((cell, index) => {
+      const icon = this.buildingIcons[index];
+      const definition = cell.buildingId
+        ? getEvolutionWorldBuildingDefinition(cell.buildingId)
+        : null;
+      if (!definition) {
+        icon.setVisible(false);
+        return;
+      }
+
+      const screen = worldToViewportPoint(cell.centerX, cell.centerY, this.viewport, this.camera);
+      const radius = Math.max(5, this.snapshot!.hexSize * this.camera.zoom * 0.88);
+      if (
+        screen.x < this.viewport.x - radius ||
+        screen.x > this.viewport.x + this.viewport.width + radius ||
+        screen.y < this.viewport.y - radius ||
+        screen.y > this.viewport.y + this.viewport.height + radius
+      ) {
+        icon.setVisible(false);
+        return;
+      }
+
+      if (cell.buildingId === 'spire') {
+        this.glowGraphics.fillStyle(0xf9f5b4, 0.14);
+        this.glowGraphics.fillCircle(screen.x, screen.y, radius * 0.74);
+        this.glowGraphics.lineStyle(2.4, 0xfff7d5, 0.62);
+        this.glowGraphics.strokeCircle(screen.x, screen.y, radius * 0.48);
+      }
+      icon.setTexture(definition.textureKey);
+      icon.setPosition(screen.x, screen.y - radius * 0.02);
+      icon.setDisplaySize(radius * 0.92, radius * 0.92);
+      icon.setAlpha(0.95);
+      icon.setVisible(this.visible);
+    });
+
+    for (let index = builtCells.length; index < this.buildingIcons.length; index += 1) {
+      this.buildingIcons[index].setVisible(false);
+    }
+  }
+
+  private renderObjectiveTarget(): void {
+    if (!this.snapshot?.objectiveTargetCoord) {
+      return;
+    }
+
+    const targetCell = this.snapshot.cells.find(
+      (cell) =>
+        cell.coord.q === this.snapshot?.objectiveTargetCoord?.q &&
+        cell.coord.r === this.snapshot?.objectiveTargetCoord?.r,
+    );
+    if (!targetCell) {
+      return;
+    }
+
+    const screen = worldToViewportPoint(targetCell.centerX, targetCell.centerY, this.viewport, this.camera);
+    const radius = Math.max(10, this.snapshot.hexSize * this.camera.zoom * 0.96);
+    if (
+      screen.x < this.viewport.x - radius ||
+      screen.x > this.viewport.x + this.viewport.width + radius ||
+      screen.y < this.viewport.y - radius ||
+      screen.y > this.viewport.y + this.viewport.height + radius
+    ) {
+      return;
+    }
+
+    const pulse = 0.5 + 0.5 * Math.sin(this.elapsed * 4.2);
+    const ringRadius = radius * 0.88 + pulse * 6;
+    const beaconY = screen.y - ringRadius - 12 - pulse * 4;
+
+    this.glowGraphics.fillStyle(0xf7f1aa, 0.08 + pulse * 0.08);
+    this.glowGraphics.fillCircle(screen.x, screen.y, ringRadius + 6);
+    this.glowGraphics.lineStyle(2.2, 0xf6e897, 0.86);
+    this.glowGraphics.strokeCircle(screen.x, screen.y, ringRadius);
+    this.glowGraphics.lineStyle(1.2, 0xfffdf1, 0.94);
+    this.glowGraphics.strokeCircle(screen.x, screen.y, Math.max(8, radius * 0.78));
+    this.glowGraphics.fillStyle(0xfff7cf, 0.94);
+    this.glowGraphics.fillTriangle(
+      screen.x,
+      beaconY,
+      screen.x - 8,
+      beaconY - 12,
+      screen.x + 8,
+      beaconY - 12,
+    );
   }
 }

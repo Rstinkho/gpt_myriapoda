@@ -6,14 +6,18 @@ import { GameEvents } from '@/game/events';
 import type {
   CameraImpulsePayload,
   DashStateSnapshot,
+  EnemyType,
   EvolutionResourceCounts,
   EvolutionSnapshot,
   EvolutionWorldActionAvailability,
   EvolutionWorldActionResult,
   ExpansionEvent,
+  HexCoord,
   HudSnapshot,
   MoveIntent,
+  PickupResourceId,
   UiMode,
+  WorldBuildingId,
 } from '@/game/types';
 import { Enemy } from '@/entities/enemies/Enemy';
 import { EnemyFactory } from '@/entities/enemies/EnemyFactory';
@@ -45,6 +49,23 @@ import { PlantSystem } from '@/systems/PlantSystem';
 import { PlayerDamageSystem } from '@/systems/PlayerDamageSystem';
 import { VacuumSystem } from '@/systems/VacuumSystem';
 import { WorldSystem } from '@/systems/WorldSystem';
+import { firstWorldProgressProfile } from '@/progression/firstWorldProfile';
+import { WorldProgressionController } from '@/progression/WorldProgressionController';
+import {
+  createBuildingPlacedMetric,
+  createCollectedResourceMetric,
+  createEnemyKillMetric,
+} from '@/progression/progressionData';
+import {
+  tutorialConquestRules,
+  tutorialProgressProfile,
+  tutorialStageScripts,
+} from '@/tutorial/tutorialData';
+import {
+  createPostTutorialWorldPreset,
+  createTutorialWorldPreset,
+  tutorialConquestCoord,
+} from '@/tutorial/tutorialWorldPresets';
 import {
   createUiStomachParticleSnapshots,
   cycleUiMode,
@@ -95,6 +116,9 @@ export class GameScene extends Phaser.Scene {
   private lastDashState: DashStateSnapshot = { ...idleDashState };
   private stageTransitionActive = false;
   private stageTransitionPickups: TransitionPickupSnapshot[] = [];
+  private worldProgression = new WorldProgressionController(tutorialProgressProfile);
+  private lastProgressHeadPosition = { x: 0, y: 0 };
+  private activeTutorialStageId: string | null = null;
 
   private collisions!: CollisionRegistry;
   private physicsWorld!: PhysicsWorld;
@@ -138,6 +162,9 @@ export class GameScene extends Phaser.Scene {
     this.lastDashState = { ...idleDashState };
     this.stageTransitionActive = false;
     this.stageTransitionPickups = [];
+    this.worldProgression = new WorldProgressionController(tutorialProgressProfile);
+    this.lastProgressHeadPosition = { x: 0, y: 0 };
+    this.activeTutorialStageId = null;
     this.pickups = new Map<string, Pickup>();
     this.plants = new Map<string, Plant>();
     this.enemies = new Map<string, Enemy>();
@@ -181,6 +208,23 @@ export class GameScene extends Phaser.Scene {
     this.debugToggleKey.on('down', this.cycleUiMode, this);
     this.eventBus.on(GameEvents.cameraImpulse, this.handleCameraImpulse, this);
     this.eventBus.on(GameEvents.worldExpanded, this.handleWorldExpanded, this);
+    this.eventBus.on(GameEvents.enemyKilled, this.handleProgressEnemyKilled, this);
+    this.eventBus.on(GameEvents.pickupAbsorbed, this.handleProgressPickupAbsorbed, this);
+    this.eventBus.on(GameEvents.dashUsed, this.handleProgressDashUsed, this);
+    this.eventBus.on(GameEvents.plantHarvestStarted, this.handleProgressPlantHarvestStarted, this);
+    this.eventBus.on(GameEvents.conquestCompleted, this.handleProgressConquestCompleted, this);
+    this.eventBus.on(GameEvents.segmentPurchased, this.handleProgressSegmentPurchased, this);
+    this.eventBus.on(GameEvents.buildingPlaced, this.handleProgressBuildingPlaced, this);
+
+    this.worldSystem.applyWorldPreset(createTutorialWorldPreset(this.worldSystem.world.grid));
+    this.worldSystem.setSpawningSuppressed(true);
+    this.worldSystem.setConquestRules({
+      occupiedSeconds: tutorialConquestRules.occupiedSeconds,
+      killGoal: tutorialConquestRules.killGoal,
+      maxActiveLeeches: tuning.conquerMaxActiveLeeches,
+    });
+    this.syncTutorialStageContent();
+    this.lastProgressHeadPosition = vec2ToPixels(this.myriapoda.head.body.getPosition());
 
     this.cameras.main.setZoom(1);
     this.scene.launch('UIScene', {
@@ -233,6 +277,7 @@ export class GameScene extends Phaser.Scene {
     const dashState = this.dashSystem.getStateSnapshot();
     this.lastDashState = dashState;
     if (didDash) {
+      this.eventBus.emit(GameEvents.dashUsed);
       this.eventBus.emit(GameEvents.cameraImpulse, {
         duration: tuning.dashMotionSeconds * 0.6,
         zoom: tuning.dashCameraZoom,
@@ -281,6 +326,7 @@ export class GameScene extends Phaser.Scene {
     // `aiSystem.update`, which runs *before* the first sync. The duplicate was
     // pure waste at 60 Hz (tail motor joint writes + stomach anchor redo).
     const headPixelPosition = vec2ToPixels(this.myriapoda.head.body.getPosition());
+    this.recordMovementProgress(headPixelPosition);
     this.worldSystem.update(headPixelPosition);
     this.emitHudChanged();
   }
@@ -292,6 +338,7 @@ export class GameScene extends Phaser.Scene {
     this.myriapoda.syncBodyAttachments(0, this.lastDashState);
 
     const headPixelPosition = vec2ToPixels(this.myriapoda.head.body.getPosition());
+    this.lastProgressHeadPosition = headPixelPosition;
     this.worldSystem.update(headPixelPosition);
     if (!this.worldSystem.isExpansionActive()) {
       this.stageTransitionActive = false;
@@ -492,6 +539,7 @@ export class GameScene extends Phaser.Scene {
       activeParasiteCount: this.myriapoda.stomach.getActiveParasiteCount(),
       parasiteAlertProgress: this.myriapoda.stomach.getParasiteAlertProgress(),
       conquest: this.worldSystem.getConquestProgress(),
+      worldProgress: this.worldProgression.getSnapshot(),
       pickupCounts: getPickupCountsByTier(stomachParticles),
       stomachParticles,
       stomachParasites: this.myriapoda.stomach.getUiParasiteSnapshots(),
@@ -500,6 +548,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private buildEvolutionSnapshot(): EvolutionSnapshot {
+    const worldSnapshot = this.worldSystem.getRenderSnapshot();
     const resourceCounts = this.myriapoda.stomach.getResourceCounts() as EvolutionResourceCounts;
     return {
       myriapoda: {
@@ -519,8 +568,20 @@ export class GameScene extends Phaser.Scene {
           type: cell.type,
           ownerId: cell.ownerId,
           buildable: cell.buildable,
+          buildingId: cell.buildingId,
           conquestState: cell.conquestState,
         })),
+        progressCells: this.worldSystem.getProgressRegionCells().map((cell) => ({
+            coord: { ...cell.coord },
+            centerX: cell.centerX,
+            centerY: cell.centerY,
+            unlocked: cell.unlocked,
+            type: cell.type,
+            ownerId: cell.ownerId,
+            buildable: cell.buildable,
+            buildingId: cell.buildingId,
+            conquestState: cell.conquestState,
+          })),
         bounds: { ...this.worldSystem.world.bounds },
         stage: this.worldSystem.world.stage,
         fillLevel: this.worldSystem.world.fillLevel,
@@ -529,7 +590,11 @@ export class GameScene extends Phaser.Scene {
         focusX: 0,
         focusY: 0,
         conquest: this.worldSystem.getConquestProgress(),
+        objectiveTargetCoord: worldSnapshot.objectiveTargetCoord
+          ? { ...worldSnapshot.objectiveTargetCoord }
+          : null,
         generation: this.worldSystem.world.generation,
+        progress: this.worldProgression.getSnapshot(),
       },
     };
   }
@@ -555,6 +620,10 @@ export class GameScene extends Phaser.Scene {
       worldActions: {
         canStartConquest: (coord: { q: number; r: number } | null) => this.canStartConquest(coord),
         startConquest: (coord: { q: number; r: number }) => this.startConquest(coord),
+        canBuild: (buildingId: WorldBuildingId, coord: { q: number; r: number } | null) =>
+          this.canBuildInEvolution(buildingId, coord),
+        build: (buildingId: WorldBuildingId, coord: { q: number; r: number }) =>
+          this.buildInEvolution(buildingId, coord),
       },
       myriapodaActions: {
         getSnapshot: () => this.buildEvolutionSnapshot(),
@@ -584,6 +653,7 @@ export class GameScene extends Phaser.Scene {
       };
     }
     this.myriapoda.body.addSegment();
+    this.eventBus.emit(GameEvents.segmentPurchased);
     this.forceEmitHudChanged();
     return { success: true };
   }
@@ -594,15 +664,23 @@ export class GameScene extends Phaser.Scene {
       return worldAvailability;
     }
 
-    if (!this.myriapoda.stomach.canAfford({ biomass: tuning.conquerBiomassCost })) {
+    const tutorialRestriction = this.getTutorialConquestRestriction(coord);
+    if (tutorialRestriction) {
+      return tutorialRestriction;
+    }
+
+    const cost = this.getCurrentConquestCost();
+    if ((cost.biomass ?? 0) > 0 && !this.myriapoda.stomach.canAfford(cost)) {
       return {
         allowed: false,
-        reason: `Need ${tuning.conquerBiomassCost} biomass.`,
+        reason: `Need ${cost.biomass} biomass.`,
+        cost,
       };
     }
 
     return {
       allowed: true,
+      cost: (cost.biomass ?? 0) > 0 ? cost : undefined,
     };
   }
 
@@ -615,14 +693,15 @@ export class GameScene extends Phaser.Scene {
       };
     }
 
-    const spent = this.myriapoda.stomach.spend({
-      biomass: tuning.conquerBiomassCost,
-    });
-    if (!spent) {
-      return {
-        success: false,
-        reason: `Need ${tuning.conquerBiomassCost} biomass.`,
-      };
+    const cost = this.getCurrentConquestCost();
+    if ((cost.biomass ?? 0) > 0) {
+      const spent = this.myriapoda.stomach.spend(cost);
+      if (!spent) {
+        return {
+          success: false,
+          reason: `Need ${cost.biomass} biomass.`,
+        };
+      }
     }
 
     if (!this.worldSystem.startConquest(coord)) {
@@ -632,6 +711,98 @@ export class GameScene extends Phaser.Scene {
       };
     }
 
+    this.forceEmitHudChanged();
+    return {
+      success: true,
+    };
+  }
+
+  private canBuildInEvolution(
+    buildingId: WorldBuildingId,
+    coord: { q: number; r: number } | null,
+  ): EvolutionWorldActionAvailability {
+    if (buildingId !== 'spire') {
+      return {
+        allowed: false,
+        reason: 'Locked',
+      };
+    }
+
+    if (this.worldProgression.getProfile().isTutorial) {
+      const stageId = this.worldProgression.getCurrentStage()?.id;
+      if (stageId !== 'tutorial-stage-4') {
+        return {
+          allowed: false,
+          reason: 'Crystal Spire unlocks in tutorial stage 4.',
+          cost: { biomass: tuning.crystalSpireBiomassCost },
+        };
+      }
+    }
+
+    if (!coord) {
+      return {
+        allowed: false,
+        reason: 'Select an owned buildable hex.',
+        cost: { biomass: tuning.crystalSpireBiomassCost },
+      };
+    }
+
+    if (!this.worldSystem.canBuild(coord, buildingId)) {
+      return {
+        allowed: false,
+        reason: 'Choose an owned buildable hex.',
+        cost: { biomass: tuning.crystalSpireBiomassCost },
+      };
+    }
+
+    if (!this.myriapoda.stomach.canAfford({ biomass: tuning.crystalSpireBiomassCost })) {
+      return {
+        allowed: false,
+        reason: `Need ${tuning.crystalSpireBiomassCost} biomass.`,
+        cost: { biomass: tuning.crystalSpireBiomassCost },
+      };
+    }
+
+    return {
+      allowed: true,
+      cost: { biomass: tuning.crystalSpireBiomassCost },
+    };
+  }
+
+  private buildInEvolution(
+    buildingId: WorldBuildingId,
+    coord: { q: number; r: number },
+  ): EvolutionWorldActionResult {
+    const availability = this.canBuildInEvolution(buildingId, coord);
+    if (!availability.allowed) {
+      return {
+        success: false,
+        reason: availability.reason,
+      };
+    }
+
+    if (
+      !this.myriapoda.stomach.spend({
+        biomass: tuning.crystalSpireBiomassCost,
+      })
+    ) {
+      return {
+        success: false,
+        reason: `Need ${tuning.crystalSpireBiomassCost} biomass.`,
+      };
+    }
+
+    if (!this.worldSystem.build(coord, buildingId)) {
+      return {
+        success: false,
+        reason: 'Unable to build on this hex.',
+      };
+    }
+
+    this.eventBus.emit(GameEvents.buildingPlaced, {
+      buildingId,
+      coord,
+    });
     this.forceEmitHudChanged();
     return {
       success: true,
@@ -654,6 +825,193 @@ export class GameScene extends Phaser.Scene {
     this.enemyBurstFxRenderer.clear();
     this.resetVacuumState();
     this.freezePlayerBodies();
+  }
+
+  private getCurrentConquestCost(): { biomass: number } {
+    if (this.worldProgression.getProfile().isTutorial) {
+      return { biomass: tutorialConquestRules.biomassCost };
+    }
+
+    return { biomass: tuning.conquerBiomassCost };
+  }
+
+  private getTutorialConquestRestriction(
+    coord: HexCoord | null,
+  ): EvolutionWorldActionAvailability | null {
+    if (!this.worldProgression.getProfile().isTutorial) {
+      return null;
+    }
+
+    const stageId = this.worldProgression.getCurrentStage()?.id;
+    if (stageId === 'tutorial-stage-3') {
+      if (!coord) {
+        return {
+          allowed: true,
+        };
+      }
+      if (
+        coord.q !== tutorialConquestCoord.q ||
+        coord.r !== tutorialConquestCoord.r
+      ) {
+        return {
+          allowed: false,
+          reason: 'Conquer the marked tutorial hex first.',
+        };
+      }
+      return null;
+    }
+
+    if (stageId === 'tutorial-stage-5') {
+      return null;
+    }
+
+    return {
+      allowed: false,
+      reason: 'Conquest unlocks later in the tutorial.',
+    };
+  }
+
+  private syncTutorialStageContent(): void {
+    if (!this.worldProgression.getProfile().isTutorial) {
+      this.activeTutorialStageId = null;
+      this.worldSystem.setObjectiveTargetCoord(null);
+      return;
+    }
+
+    const stageId = this.worldProgression.getCurrentStage()?.id ?? null;
+    if (!stageId) {
+      this.worldSystem.setObjectiveTargetCoord(null);
+      return;
+    }
+
+    const script = tutorialStageScripts[stageId];
+    this.worldSystem.setObjectiveTargetCoord(script?.conquestTargetCoord ?? null);
+
+    if (this.activeTutorialStageId === stageId) {
+      return;
+    }
+
+    this.activeTutorialStageId = stageId;
+    if (!script) {
+      return;
+    }
+
+    for (const enemy of script.enemies ?? []) {
+      this.worldSystem.spawnScriptedEnemy(enemy.coord, enemy.type, {
+        dropOverride: enemy.dropOverride,
+      });
+    }
+    for (const plant of script.plants ?? []) {
+      this.worldSystem.spawnScriptedPlant(plant.coord, plant.type);
+    }
+    for (const pickup of script.pickups ?? []) {
+      this.worldSystem.spawnScriptedPickups(
+        pickup.coord,
+        pickup.resourceId,
+        pickup.count,
+        pickup.scatterRadiusPx,
+      );
+    }
+  }
+
+  private finishTutorialProgression(): void {
+    this.cameraSystem.triggerExpansion();
+    this.worldSystem.applyWorldPreset(
+      createPostTutorialWorldPreset(this.worldSystem.world.grid, this.worldSystem.world.cells),
+    );
+    this.worldSystem.setSpawningSuppressed(false);
+    this.worldSystem.setConquestRules({
+      occupiedSeconds: tuning.conquerOccupancySeconds,
+      killGoal: tuning.conquerKillGoal,
+      maxActiveLeeches: tuning.conquerMaxActiveLeeches,
+    });
+    this.worldProgression.switchProfile(firstWorldProgressProfile);
+    this.activeTutorialStageId = null;
+    this.worldSystem.setObjectiveTargetCoord(null);
+    this.forceEmitHudChanged();
+  }
+
+  private recordMovementProgress(headPixelPosition: { x: number; y: number }): void {
+    const distance = Math.hypot(
+      headPixelPosition.x - this.lastProgressHeadPosition.x,
+      headPixelPosition.y - this.lastProgressHeadPosition.y,
+    );
+    this.lastProgressHeadPosition = headPixelPosition;
+    if (distance <= 0.0001) {
+      return;
+    }
+
+    this.recordProgressMetric('movementDistancePx', distance);
+  }
+
+  private recordProgressMetric(
+    metricId:
+      | 'movementDistancePx'
+      | 'dashUsed'
+      | 'enemyKilledAny'
+      | 'plantHarvestStarted'
+      | 'conquestCompleted'
+      | 'segmentPurchased'
+      | `enemyKilled:${EnemyType}`
+      | `resourceCollected:${PickupResourceId}`
+      | `buildingPlaced:${WorldBuildingId}`,
+    amount = 1,
+  ): void {
+    const result = this.worldProgression.recordMetric(metricId, amount);
+    if (!result.stageChanged) {
+      return;
+    }
+
+    if (result.profileId === tutorialProgressProfile.id && result.previousStageId) {
+      const previousScript = tutorialStageScripts[result.previousStageId];
+      for (const reward of previousScript?.completionRewards ?? []) {
+        this.worldSystem.spawnScriptedPickups(
+          reward.coord,
+          reward.resourceId,
+          reward.count,
+          reward.scatterRadiusPx,
+        );
+      }
+    }
+
+    if (result.profileId === tutorialProgressProfile.id && result.profileCompleted) {
+      this.finishTutorialProgression();
+      return;
+    }
+
+    this.syncTutorialStageContent();
+    this.forceEmitHudChanged();
+  }
+
+  private handleProgressEnemyKilled(payload: { enemyType: Enemy['type'] }): void {
+    this.recordProgressMetric('enemyKilledAny');
+    this.recordProgressMetric(createEnemyKillMetric(payload.enemyType));
+  }
+
+  private handleProgressPickupAbsorbed(payload: { resourceId?: PickupResourceId }): void {
+    if (payload.resourceId === 'biomass') {
+      this.recordProgressMetric(createCollectedResourceMetric('biomass'));
+    }
+  }
+
+  private handleProgressDashUsed(): void {
+    this.recordProgressMetric('dashUsed');
+  }
+
+  private handleProgressPlantHarvestStarted(): void {
+    this.recordProgressMetric('plantHarvestStarted');
+  }
+
+  private handleProgressConquestCompleted(_payload: { coord: HexCoord }): void {
+    this.recordProgressMetric('conquestCompleted');
+  }
+
+  private handleProgressSegmentPurchased(): void {
+    this.recordProgressMetric('segmentPurchased');
+  }
+
+  private handleProgressBuildingPlaced(payload: { buildingId: WorldBuildingId }): void {
+    this.recordProgressMetric(createBuildingPlacedMetric(payload.buildingId));
   }
 
   private cycleUiMode(): void {
@@ -782,6 +1140,13 @@ export class GameScene extends Phaser.Scene {
 
     this.eventBus.off(GameEvents.cameraImpulse, this.handleCameraImpulse, this);
     this.eventBus.off(GameEvents.worldExpanded, this.handleWorldExpanded, this);
+    this.eventBus.off(GameEvents.enemyKilled, this.handleProgressEnemyKilled, this);
+    this.eventBus.off(GameEvents.pickupAbsorbed, this.handleProgressPickupAbsorbed, this);
+    this.eventBus.off(GameEvents.dashUsed, this.handleProgressDashUsed, this);
+    this.eventBus.off(GameEvents.plantHarvestStarted, this.handleProgressPlantHarvestStarted, this);
+    this.eventBus.off(GameEvents.conquestCompleted, this.handleProgressConquestCompleted, this);
+    this.eventBus.off(GameEvents.segmentPurchased, this.handleProgressSegmentPurchased, this);
+    this.eventBus.off(GameEvents.buildingPlaced, this.handleProgressBuildingPlaced, this);
     this.enemyBurstFxController.destroy();
     this.debugToggleKey.off('down', this.cycleUiMode, this);
     this.inputSystem.destroy();
@@ -801,5 +1166,8 @@ export class GameScene extends Phaser.Scene {
     this.lastMoveIntent = { ...stationaryMoveIntent };
     this.lastDashState = { ...idleDashState };
     this.stageTransitionActive = false;
+    this.worldProgression = new WorldProgressionController(tutorialProgressProfile);
+    this.lastProgressHeadPosition = { x: 0, y: 0 };
+    this.activeTutorialStageId = null;
   }
 }

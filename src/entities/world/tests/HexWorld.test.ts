@@ -65,4 +65,30 @@ describe('HexWorld', () => {
     expect(completed?.buildable).toBe(true);
     expect(world.hasOwnedCell()).toBe(true);
   });
+
+  it('allows conquering additional dead hexes after the first one is owned', () => {
+    const world = new HexWorld(() => 0);
+    const deadCells = world.cells.filter((cell) => cell.type === 'dead');
+
+    expect(deadCells).toHaveLength(6);
+    expect(world.completeConquest(deadCells[0]!.coord)?.conquestState).toBe('owned');
+    expect(world.canConquerCell(deadCells[1]!.coord)).toBe(true);
+    expect(world.beginConquest(deadCells[1]!.coord)?.conquestState).toBe('active');
+    expect(world.completeConquest(deadCells[1]!.coord)?.conquestState).toBe('owned');
+    expect(world.getOwnedCells()).toHaveLength(2);
+  });
+
+  it('allows only one Crystal Spire across owned buildable hexes', () => {
+    const world = new HexWorld(() => 0);
+    const deadCells = world.cells.filter((cell) => cell.type === 'dead');
+
+    const firstOwned = world.completeConquest(deadCells[0]!.coord)!;
+    const secondOwned = world.completeConquest(deadCells[1]!.coord)!;
+
+    expect(world.canBuild(firstOwned.coord, 'spire')).toBe(true);
+    expect(world.placeBuilding(firstOwned.coord, 'spire')?.buildingId).toBe('spire');
+    expect(world.canBuild(firstOwned.coord, 'spire')).toBe(false);
+    expect(world.canBuild(secondOwned.coord, 'spire')).toBe(false);
+    expect(world.placeBuilding(secondOwned.coord, 'spire')).toBeNull();
+  });
 });

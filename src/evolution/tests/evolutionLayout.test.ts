@@ -9,6 +9,7 @@ import {
   getEvolutionWorldBuildingSlotLayout,
   getEvolutionWorldBuildingsGridBounds,
   getEvolutionWorldBuildingsViewLayout,
+  getEvolutionWorldProgressPanelBounds,
   getEvolutionWorldSideContentRect,
 } from '@/evolution/evolutionLayout';
 
@@ -56,6 +57,18 @@ describe('evolutionLayout', () => {
     expect(cards[0].rect.width).toBe(cards[0].rect.height);
     expect(slots).toHaveLength(8);
     expect(slots[4].rect.y).toBeGreaterThan(slots[0].rect.y);
+  });
+
+  it('keeps the world progress panel tucked inside the map viewport', () => {
+    const mapBounds = { x: 40, y: 80, width: 720, height: 520 };
+    const panel = getEvolutionWorldProgressPanelBounds(mapBounds);
+
+    expect(panel.width).toBeGreaterThanOrEqual(244);
+    expect(panel.height).toBeGreaterThanOrEqual(156);
+    expect(panel.x).toBeGreaterThan(mapBounds.x);
+    expect(panel.y).toBeGreaterThan(mapBounds.y);
+    expect(panel.x + panel.width).toBeLessThanOrEqual(mapBounds.x + mapBounds.width);
+    expect(panel.y + panel.height).toBeLessThanOrEqual(mapBounds.y + mapBounds.height);
   });
 
   it('builds a 9-node left-to-right branched enhancement tree', () => {

@@ -32,8 +32,12 @@ export function areHexCoordsAdjacent(left: HexCoord, right: HexCoord): boolean {
   );
 }
 
-export function collectFrontierCoords(grid: HexGrid, cells: HexCell[]): HexCoord[] {
-  const unlockedKeys = new Set(cells.map((cell) => createCoordKey(cell.coord)));
+export function collectFrontierCoords(
+  grid: HexGrid,
+  cells: HexCell[],
+  occupiedCells: HexCell[] = cells,
+): HexCoord[] {
+  const unlockedKeys = new Set(occupiedCells.map((cell) => createCoordKey(cell.coord)));
   const frontier = new Map<string, HexCoord>();
 
   for (const cell of cells) {
@@ -53,8 +57,9 @@ export function selectConnectedFrontierCluster(
   cells: HexCell[],
   clusterSize: number,
   chooseIndex: ChooseIndex = (length) => randomInt(0, length - 1),
+  occupiedCells: HexCell[] = cells,
 ): HexCell[] {
-  const frontier = collectFrontierCoords(grid, cells);
+  const frontier = collectFrontierCoords(grid, cells, occupiedCells);
   if (frontier.length <= clusterSize) {
     return frontier.slice(0, clusterSize).map((coord) => grid.createCell(coord));
   }
@@ -98,9 +103,16 @@ export function applyExpansion(
   state: ExpansionState,
   thresholdStep: number,
   chooseIndex?: ChooseIndex,
+  frontierSourceCells: HexCell[] = state.cells,
 ): ExpansionState & { event: ExpansionEvent } {
   const nextStage = state.stage + 1;
-  const newCells = selectConnectedFrontierCluster(grid, state.cells, 3, chooseIndex);
+  const newCells = selectConnectedFrontierCluster(
+    grid,
+    frontierSourceCells,
+    3,
+    chooseIndex,
+    state.cells,
+  );
 
   return {
     stage: nextStage,

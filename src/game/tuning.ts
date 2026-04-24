@@ -629,9 +629,6 @@ export const tuning = {
   stomachNutrientCapacity: 50,
   stomachMixerAngularSpeed: 1.4,
 
-  /** Evolution overlay: biomass cost to add one body segment (Myriapoda tab). */
-  evolutionAddSegmentBiomassCost: 30,
-
   // Conquest
   conquerBiomassCost: 10,
   conquerOccupancySeconds: 60,

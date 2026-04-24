@@ -1,7 +1,14 @@
 import * as Phaser from 'phaser';
 import { tuning } from '@/game/tuning';
 import { GameEvents } from '@/game/events';
-import type { WorldRenderSnapshot } from '@/game/types';
+import type {
+  HexCoord,
+  PickupResourceId,
+  PlantType,
+  WorldBuildingId,
+  HexCell,
+  WorldRenderSnapshot,
+} from '@/game/types';
 import { isShellbackEnemy, type Enemy } from '@/entities/enemies/Enemy';
 import type { EnemyFactory } from '@/entities/enemies/EnemyFactory';
 import { resolveEnemyDrops } from '@/entities/enemies/EnemyDropRegistry';
@@ -14,11 +21,14 @@ import type { Pickup } from '@/entities/pickups/Pickup';
 import type { PickupFactory } from '@/entities/pickups/PickupFactory';
 import { getPickupTierFromResource } from '@/entities/pickups/PickupRegistry';
 import { appendParasiteBonusDrop } from '@/entities/pickups/harmful';
-import { HexWorld } from '@/entities/world/HexWorld';
+import { HexWorld, type HexWorldState } from '@/entities/world/HexWorld';
 import { SpawnSystem, enforceEnemyCap } from '@/entities/world/SpawnSystem';
 import { createCoordKey, type ChooseIndex } from '@/entities/world/WorldExpansion';
 import { WorldRenderer } from '@/rendering/WorldRenderer';
-import { ConquestSystem } from '@/systems/conquest/ConquestSystem';
+import {
+  ConquestSystem,
+  type ConquestRules,
+} from '@/systems/conquest/ConquestSystem';
 import { randomBetween } from '@/utils/random';
 
 interface PlantSlot {
@@ -44,6 +54,9 @@ export class WorldSystem {
   private readonly conquestSystem: ConquestSystem;
   private lastFocus = { x: 0, y: 0 };
   private lastSnapshot: WorldRenderSnapshot;
+  private readonly enemyDropOverrides = new Map<string, PickupResourceId[]>();
+  private objectiveTargetCoord: HexCoord | null = null;
+  private progressRegionCellKeys: Set<string> | null = null;
   // Reused across ensureShellback() calls so we don't allocate a new Set +
   // intermediate array every fixed step.
   private readonly shellbackGuardCellKeyScratch = new Set<string>();
@@ -93,8 +106,9 @@ export class WorldSystem {
       this.bufferedFillGain = 0;
       if (totalFillGain > 0) {
         this.renderer.addFillPulse(Math.min(0.36, totalFillGain * 0.05));
-        const expansion = this.world.addFill(totalFillGain);
+        const expansion = this.world.addFill(totalFillGain, this.getProgressRegionCells());
         if (expansion) {
+          this.addProgressRegionCells(expansion.newCells);
           const overflowProgress = this.world.fillLevel / Math.max(1, this.world.fillThreshold);
           this.renderer.startExpansion(expansion, overflowProgress);
           this.eventBus.emit(GameEvents.worldExpanded, expansion);
@@ -102,7 +116,12 @@ export class WorldSystem {
       }
     }
 
-    this.conquestSystem.update(this.world, headPosition);
+    const completedConquestCoord = this.conquestSystem.update(this.world, headPosition);
+    if (completedConquestCoord) {
+      this.eventBus.emit(GameEvents.conquestCompleted, {
+        coord: completedConquestCoord,
+      });
+    }
 
     const visibleCells = this.renderer.getSpawnableCells(this.world.cells);
     if (!this.spawningSuppressed) {
@@ -119,13 +138,6 @@ export class WorldSystem {
       return {
         allowed: false,
         reason: 'Conquest already in progress.',
-      };
-    }
-
-    if (this.world.hasOwnedCell()) {
-      return {
-        allowed: false,
-        reason: 'This world already has a conquered hex.',
       };
     }
 
@@ -151,12 +163,128 @@ export class WorldSystem {
     return this.conquestSystem.start(this.world, coord);
   }
 
+  canBuild(coord: HexCoord, buildingId: WorldBuildingId): boolean {
+    return this.world.canBuild(coord, buildingId);
+  }
+
+  build(coord: HexCoord, buildingId: WorldBuildingId): boolean {
+    return this.world.placeBuilding(coord, buildingId) !== null;
+  }
+
   getConquestProgress() {
     return this.conquestSystem.getSnapshot();
   }
 
   getRenderSnapshot(): WorldRenderSnapshot {
     return this.lastSnapshot;
+  }
+
+  getProgressRegionCells(): HexCell[] {
+    if (!this.progressRegionCellKeys || this.progressRegionCellKeys.size === 0) {
+      return this.world.cells;
+    }
+
+    const regionCells = this.world.cells.filter((cell) =>
+      this.progressRegionCellKeys?.has(createCoordKey(cell.coord)),
+    );
+    return regionCells.length > 0 ? regionCells : this.world.cells;
+  }
+
+  spawnScriptedEnemy(
+    coord: HexCoord,
+    type: Enemy['type'],
+    options: { dropOverride?: PickupResourceId[] } = {},
+  ): Enemy | null {
+    const cell = this.world.findCell(coord);
+    if (!cell) {
+      return null;
+    }
+
+    const spawn = this.spawner.pickSpawnInCell(cell, this.lastFocus);
+    const enemy = this.enemyFactory.create(
+      {
+        ...spawn,
+        guardCell: type === 'shellback' ? cell : undefined,
+      },
+      type,
+    );
+    this.enemies.set(enemy.id, enemy);
+    if (options.dropOverride) {
+      this.enemyDropOverrides.set(enemy.id, [...options.dropOverride]);
+    }
+    return enemy;
+  }
+
+  spawnScriptedPlant(coord: HexCoord, type: PlantType = 'fiberPlant'): Plant | null {
+    const cell = this.world.findCell(coord);
+    if (!cell) {
+      return null;
+    }
+
+    const cellKey = createCoordKey(coord);
+    const existing = [...this.plants.values()].find((plant) => plant.cellKey === cellKey);
+    if (existing) {
+      return existing;
+    }
+
+    const plant = this.plantFactory.create(cell, type);
+    this.plants.set(plant.id, plant);
+    this.plantSlots.set(cellKey, {
+      occupied: true,
+      plantId: plant.id,
+    });
+    return plant;
+  }
+
+  spawnScriptedPickups(
+    coord: HexCoord,
+    resourceId: PickupResourceId,
+    count: number,
+    scatterRadiusPx: number,
+  ): void {
+    const cell = this.world.findCell(coord);
+    if (!cell) {
+      return;
+    }
+
+    for (let index = 0; index < count; index += 1) {
+      const angle = Math.PI * 2 * (index / Math.max(1, count));
+      const distance = randomBetween(8, Math.max(9, scatterRadiusPx));
+      const pickup = this.pickupFactory.create(
+        cell.centerX + Math.cos(angle) * distance,
+        cell.centerY + Math.sin(angle) * distance,
+        getPickupTierFromResource(resourceId),
+        {
+          resourceId,
+          alpha: 0.9,
+        },
+      );
+      this.pickups.set(pickup.id, pickup);
+    }
+  }
+
+  applyWorldPreset(state: HexWorldState & { progressRegionCoords?: HexCoord[] }): void {
+    this.world.replaceState(state);
+    this.pendingFillGain = 0;
+    this.bufferedFillGain = 0;
+    this.shellbackRespawnTimer = 0;
+    this.plantSlots.clear();
+    this.progressRegionCellKeys =
+      state.progressRegionCoords && state.progressRegionCoords.length > 0
+        ? new Set(state.progressRegionCoords.map((coord) => createCoordKey(coord)))
+        : null;
+    this.lastSnapshot = this.createSnapshot();
+    this.renderer.update(this.lastSnapshot);
+  }
+
+  setConquestRules(rules: ConquestRules): void {
+    this.conquestSystem.setRules(rules);
+    this.lastSnapshot = this.createSnapshot();
+  }
+
+  setObjectiveTargetCoord(coord: HexCoord | null): void {
+    this.objectiveTargetCoord = coord ? { ...coord } : null;
+    this.lastSnapshot = this.createSnapshot();
   }
 
   private ensurePlants(visibleCells: typeof this.world.cells): void {
@@ -277,8 +405,13 @@ export class WorldSystem {
     if (payload.enemyType === 'shellback') {
       this.shellbackRespawnTimer = tuning.shellbackRespawnDelaySeconds;
     }
+    const scriptedDrops =
+      payload.enemyId ? this.enemyDropOverrides.get(payload.enemyId) ?? null : null;
+    if (payload.enemyId) {
+      this.enemyDropOverrides.delete(payload.enemyId);
+    }
     const drops = appendParasiteBonusDrop(
-      resolveEnemyDrops(payload.enemyType, this.randomFloat()),
+      scriptedDrops ?? resolveEnemyDrops(payload.enemyType, this.randomFloat()),
       this.randomFloat(),
       tuning.parasiteDropChance,
     );
@@ -328,8 +461,10 @@ export class WorldSystem {
   }
 
   private createSnapshot(): WorldRenderSnapshot {
+    const progressCells = this.getProgressRegionCells();
     return {
       cells: this.world.cells,
+      progressCells,
       bounds: this.world.bounds,
       stage: this.world.stage,
       fillLevel: this.world.fillLevel,
@@ -338,7 +473,21 @@ export class WorldSystem {
       focusX: this.lastFocus.x,
       focusY: this.lastFocus.y,
       conquest: this.conquestSystem.getSnapshot(),
+      objectiveTargetCoord: this.objectiveTargetCoord
+        ? { ...this.objectiveTargetCoord }
+        : null,
       generation: this.world.generation,
+      progress: null,
     };
+  }
+
+  private addProgressRegionCells(cells: HexCell[]): void {
+    if (!this.progressRegionCellKeys) {
+      return;
+    }
+
+    for (const cell of cells) {
+      this.progressRegionCellKeys.add(createCoordKey(cell.coord));
+    }
   }
 }

@@ -51,6 +51,7 @@ function createSnapshot(cells: HexCell[], stage = 2): WorldRenderSnapshot {
     focusY: 0,
     conquest: null,
     generation: 1,
+    progress: null,
   };
 }
 

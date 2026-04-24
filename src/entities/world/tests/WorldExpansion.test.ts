@@ -74,4 +74,37 @@ describe('WorldExpansion', () => {
       ),
     ).toBe(true);
   });
+
+  it('can expand from a chosen frontier subset while still respecting the full occupied world', () => {
+    const grid = new HexGrid(100);
+    const tutorialCells = grid.createDisk(1);
+    const remoteCells = grid.createDisk(1).map((cell) =>
+      grid.createCell({ q: cell.coord.q + 5, r: cell.coord.r }),
+    );
+    const occupiedCells = [...tutorialCells, ...remoteCells];
+
+    const expanded = applyExpansion(
+      grid,
+      {
+        stage: 1,
+        fillLevel: 240,
+        fillThreshold: 200,
+        cells: occupiedCells,
+      },
+      100,
+      () => 0,
+      remoteCells,
+    );
+
+    expect(
+      expanded.event.newCells.every((cell) =>
+        remoteCells.some((remote) => areHexCoordsAdjacent(cell.coord, remote.coord)),
+      ),
+    ).toBe(true);
+    expect(
+      expanded.event.newCells.some((cell) =>
+        tutorialCells.some((tutorial) => areHexCoordsAdjacent(cell.coord, tutorial.coord)),
+      ),
+    ).toBe(false);
+  });
 });

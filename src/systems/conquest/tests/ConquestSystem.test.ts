@@ -71,15 +71,15 @@ describe('ConquestSystem', () => {
     const occupancyFrames = Math.ceil(
       tuning.conquerOccupancySeconds / tuning.fixedStepSeconds,
     );
-    let completed = false;
+    let completedCoord = null;
     for (let frame = 0; frame < occupancyFrames; frame += 1) {
-      completed = system.update(world, { x: target!.centerX, y: target!.centerY });
-      if (completed) {
+      completedCoord = system.update(world, { x: target!.centerX, y: target!.centerY });
+      if (completedCoord) {
         break;
       }
     }
 
-    expect(completed).toBe(true);
+    expect(completedCoord).toEqual(target!.coord);
     expect(world.getOwnedCell()?.coord).toEqual(target!.coord);
     expect(world.getOwnedCell()?.buildable).toBe(true);
     expect(system.getSnapshot()).toBeNull();

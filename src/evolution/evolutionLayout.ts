@@ -35,6 +35,8 @@ export interface EvolutionBuildingSlotLayout {
   cost: ResourceCost;
   costLabel: string;
   requirement: string;
+  locked: boolean;
+  textureKey: string;
   rect: RectLike;
 }
 
@@ -223,6 +225,17 @@ export function getEvolutionWorldBuildingsViewLayout(content: RectLike): { build
   return { buildingsSection: { ...content } };
 }
 
+export function getEvolutionWorldProgressPanelBounds(mapBounds: RectLike): RectLike {
+  const width = Math.min(320, Math.max(244, mapBounds.width * 0.34));
+  const height = Math.min(232, Math.max(156, mapBounds.height * 0.34));
+  return {
+    x: mapBounds.x + mapBounds.width - width - 14,
+    y: mapBounds.y + 14,
+    width,
+    height,
+  };
+}
+
 /** Insets the buildings view area for the 4×2 grid (sub-tabs replace section titles). */
 export function getEvolutionWorldBuildingsGridBounds(section: RectLike): RectLike {
   return insetRect(section, 6);
@@ -254,6 +267,8 @@ export function getEvolutionWorldBuildingSlotLayout(
       cost: def.cost,
       costLabel: formatResourceCost(def.cost),
       requirement: def.requirement,
+      locked: def.locked,
+      textureKey: def.textureKey,
       rect: {
         x: startX + col * (tile + gap),
         y: startY + row * (tile + gap),
